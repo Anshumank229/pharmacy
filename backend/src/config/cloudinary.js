@@ -1,0 +1,16 @@
+// src/config/cloudinary.js
+// Cloudinary configuration — imported by services that need the cloudinary instance.
+// For upload logic, see src/services/cloudinaryService.js
+
+import { v2 as cloudinary } from "cloudinary";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+export default cloudinary;
