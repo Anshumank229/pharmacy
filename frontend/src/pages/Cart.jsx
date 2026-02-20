@@ -1,7 +1,7 @@
 import { useEffect, useState, useContext } from "react";
 import api from "../api/axiosClient";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingCart, Trash2, Plus, Minus, CheckCircle } from "lucide-react";
+import { ShoppingCart, Trash2, Plus, Minus, CheckCircle, FileText, AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { AuthContext } from "../context/AuthContext";
 
@@ -11,6 +11,11 @@ const Cart = () => {
   const [cart, setCart] = useState({ items: [] });
   const [loading, setLoading] = useState(true);
   const [updatingItem, setUpdatingItem] = useState(null);
+
+  // Check if any items require prescription
+  const hasPrescriptionItems = cart.items?.some(
+    item => item.medicine?.requiresPrescription
+  );
 
   // Remove localStorage check - use AuthContext instead
   const isLoggedIn = !!user;
@@ -192,6 +197,23 @@ const Cart = () => {
           </p>
         </div>
 
+        {/* Prescription Warning Banner */}
+        {hasPrescriptionItems && (
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-r-lg">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <AlertCircle className="h-5 w-5 text-yellow-400" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-yellow-700">
+                  <span className="font-bold">📋 Prescription Required:</span> Some items in your cart need a valid prescription. 
+                  You'll need to upload your prescription at checkout.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!cart.items?.length ? (
           // Empty Cart State
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 sm:p-12 text-center">
@@ -237,10 +259,19 @@ const Cart = () => {
                         {/* Product Name & Price */}
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-3">
                           <div className="flex-1">
-                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">
-                              {medicine.name || 'Unknown Medicine'}
-                            </h3>
-                            <p className="text-sm text-gray-600">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-base sm:text-lg font-semibold text-gray-900">
+                                {medicine.name || 'Unknown Medicine'}
+                              </h3>
+                              {/* Prescription Badge */}
+                              {medicine.requiresPrescription && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                                  <FileText className="w-3 h-3" />
+                                  Rx Required
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">
                               {medicine.brand || medicine.manufacturer || 'Unknown Brand'} • {medicine.category || 'Medicine'}
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
@@ -319,6 +350,27 @@ const Cart = () => {
                   Order Summary
                 </h2>
 
+                {/* Prescription Items Summary */}
+                {hasPrescriptionItems && (
+                  <div className="mb-4 p-3 bg-yellow-50 rounded-lg">
+                    <h3 className="text-sm font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      Prescription Items
+                    </h3>
+                    {cart.items
+                      .filter(item => item.medicine?.requiresPrescription)
+                      .map(item => (
+                        <div key={item.medicine?._id} className="flex justify-between text-xs text-yellow-700 py-1">
+                          <span>{item.medicine?.name}</span>
+                          <span className="font-medium">Qty: {item.quantity}</span>
+                        </div>
+                      ))}
+                    <p className="text-xs text-yellow-600 mt-2">
+                      You'll need to upload a valid prescription at checkout
+                    </p>
+                  </div>
+                )}
+
                 {/* Summary Details */}
                 <div className="space-y-4 mb-6">
                   <div className="flex justify-between text-gray-700">
@@ -391,6 +443,11 @@ const Cart = () => {
           >
             Proceed to Checkout ({cart.items.length} items)
           </button>
+          {hasPrescriptionItems && (
+            <p className="text-xs text-yellow-600 text-center mt-2">
+              ⚠️ Contains items that require prescription
+            </p>
+          )}
         </div>
       )}
     </div>

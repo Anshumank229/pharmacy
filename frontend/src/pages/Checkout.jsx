@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axiosClient';
 import {
   MapPin,
@@ -12,7 +12,9 @@ import {
   Tag,
   CheckCircle,
   AlertCircle,
-  ChevronDown
+  ChevronDown,
+  FileText,
+  Loader
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -54,6 +56,12 @@ const Checkout = () => {
   const [processing, setProcessing] = useState(false);
   const [user, setUser] = useState(null);
 
+  // Prescription states
+  const [hasValidPrescription, setHasValidPrescription] = useState(false);
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [checkingPrescription, setCheckingPrescription] = useState(false);
+  const [prescriptionError, setPrescriptionError] = useState('');
+
   // Pincode states
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const [pincodeError, setPincodeError] = useState('');
@@ -78,9 +86,43 @@ const Checkout = () => {
   const [discount, setDiscount] = useState(0);
   const [appliedCoupon, setAppliedCoupon] = useState(null);
 
+  // Check if any items require prescription
+  const requiresPrescription = cartItems.some(
+    item => item.medicine?.requiresPrescription
+  );
+
+  // Fetch user's approved prescriptions
+  const checkUserPrescriptions = async () => {
+    if (!requiresPrescription) return;
+    
+    setCheckingPrescription(true);
+    try {
+      const res = await api.get('/prescriptions/my-prescriptions');
+      // Handle different response structures
+      const prescriptionsList = res.data.prescriptions || res.data || [];
+      const approvedPrescriptions = prescriptionsList.filter(
+        p => p.status === 'approved'
+      );
+      setPrescriptions(approvedPrescriptions);
+      setHasValidPrescription(approvedPrescriptions.length > 0);
+      setPrescriptionError('');
+    } catch (error) {
+      console.error('Failed to check prescriptions:', error);
+      setPrescriptionError('Could not verify prescriptions');
+    } finally {
+      setCheckingPrescription(false);
+    }
+  };
+
   useEffect(() => {
     fetchUserAndCart();
   }, []);
+
+  useEffect(() => {
+    if (requiresPrescription && cartItems.length > 0) {
+      checkUserPrescriptions();
+    }
+  }, [requiresPrescription, cartItems]);
 
   const fetchUserAndCart = async () => {
     try {
@@ -214,6 +256,12 @@ const Checkout = () => {
       return false;
     }
 
+    // Check prescription requirement
+    if (requiresPrescription && !hasValidPrescription) {
+      toast.error('Please upload and get approval for a valid prescription first');
+      return false;
+    }
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(shippingDetails.email)) {
       toast.error('Please enter a valid email address');
@@ -269,24 +317,24 @@ const Checkout = () => {
       const orderData = {
         items: cartItems.map(item => ({
           medicine: item.medicine?._id || item.medicineId || item._id,
-          quantity: item.quantity,
-          price: item.medicine?.price || item.price
+          quantity: Number(item.quantity),
+          price: Number(item.medicine?.price || item.price || 0)
         })),
         shippingAddress: {
-          name: shippingDetails.name,
-          email: shippingDetails.email,
-          phone: shippingDetails.phone,
-          address: shippingDetails.address,
-          city: shippingDetails.city,
-          state: shippingDetails.state || '',
-          postalCode: shippingDetails.postalCode
+          name: String(shippingDetails.name).trim(),
+          email: String(shippingDetails.email).trim(),
+          phone: String(shippingDetails.phone).trim(),
+          address: String(shippingDetails.address).trim(),
+          city: String(shippingDetails.city).trim(),
+          state: String(shippingDetails.state || '').trim(),
+          postalCode: String(shippingDetails.postalCode).trim()
         },
         paymentMethod: paymentMethod,
-        totalAmount: total,
-        subtotal: subtotal,
-        deliveryCharge: deliveryCharge,
-        discount: discountAmount,
-        couponCode: appliedCoupon
+        totalAmount: Number(total),
+        subtotal: Number(subtotal),
+        deliveryCharge: Number(deliveryCharge),
+        discount: Number(discountAmount),
+        couponCode: appliedCoupon || null
       };
 
       console.log('Creating order:', orderData);
@@ -312,8 +360,23 @@ const Checkout = () => {
         }, 1500);
       }
     } catch (error) {
-      console.error('Order error:', error);
-      toast.error(error.response?.data?.message || 'Failed to place order. Please try again.');
+      console.error('❌ Order error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else if (error.response?.data?.errors) {
+        const errors = error.response.data.errors;
+        Object.values(errors).forEach(err => {
+          toast.error(err);
+        });
+      } else {
+        toast.error('Failed to place order. Please try again.');
+      }
     } finally {
       setProcessing(false);
     }
@@ -328,7 +391,7 @@ const Checkout = () => {
       }
 
       const options = {
-        key: process.env.REACT_APP_RAZORPAY_KEY_ID || 'rzp_test_dummy',
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_dummy',
         amount: orderData.amount || total * 100,
         currency: 'INR',
         name: 'MedStore',
@@ -407,6 +470,59 @@ const Checkout = () => {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout</h1>
           <p className="text-gray-600">Complete your purchase</p>
         </div>
+
+        {/* Prescription Verification Section */}
+        {requiresPrescription && (
+          <div className="mb-6">
+            {checkingPrescription ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 flex items-center justify-center">
+                <Loader className="w-5 h-5 animate-spin text-blue-600 mr-3" />
+                <span className="text-gray-600">Checking your prescriptions...</span>
+              </div>
+            ) : hasValidPrescription ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                <div className="flex items-start">
+                  <CheckCircle className="h-6 w-6 text-green-600 mt-0.5 mr-4 flex-shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-green-800 text-lg mb-1">Prescription Verified ✓</h3>
+                    <p className="text-green-700 mb-3">
+                      Your prescription has been approved. You can proceed with your order.
+                    </p>
+                    <div className="bg-white bg-opacity-50 rounded-lg p-3">
+                      <p className="text-sm text-green-800">
+                        <span className="font-medium">Approved Prescription:</span> {prescriptions[0]?.originalName || 'Valid until further notice'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <div className="flex items-start">
+                  <AlertCircle className="h-6 w-6 text-yellow-600 mt-0.5 mr-4 flex-shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-yellow-800 text-lg mb-1">Prescription Required</h3>
+                    <p className="text-yellow-700 mb-4">
+                      Some items in your cart require a valid prescription. Please upload your prescription and wait for approval.
+                    </p>
+                    <div className="space-y-3">
+                      <Link
+                        to="/upload-prescription"
+                        className="inline-flex items-center gap-2 bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 transition-colors"
+                      >
+                        <FileText className="w-5 h-5" />
+                        Upload Prescription
+                      </Link>
+                      <p className="text-xs text-yellow-600">
+                        Note: Prescription approval usually takes 24-48 hours
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <form onSubmit={handlePlaceOrder}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -621,6 +737,31 @@ const Checkout = () => {
                 </div>
               </div>
 
+              {/* Prescription Items Summary */}
+              {requiresPrescription && (
+                <div className="bg-white rounded-lg shadow-sm p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-yellow-600" />
+                    Items Requiring Prescription
+                  </h3>
+                  <div className="space-y-2">
+                    {cartItems
+                      .filter(item => item.medicine?.requiresPrescription)
+                      .map(item => (
+                        <div key={item._id} className="flex items-center justify-between py-2 border-b last:border-0">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-yellow-600" />
+                            <span className="text-sm text-gray-700">{item.medicine?.name}</span>
+                          </div>
+                          <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                            Prescription Required
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
               {/* Coupon Code */}
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
@@ -718,7 +859,7 @@ const Checkout = () => {
               </div>
             </div>
 
-            {/* Right Column - Order Summary (unchanged) */}
+            {/* Right Column - Order Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-lg shadow-sm p-6 sticky top-4">
                 <div className="flex items-center gap-2 mb-6">
@@ -744,6 +885,12 @@ const Checkout = () => {
                           <p className="text-sm font-semibold text-gray-900">
                             ₹{((medicine.price || 0) * item.quantity).toFixed(2)}
                           </p>
+                          {medicine.requiresPrescription && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
+                              <FileText className="w-3 h-3" />
+                              Rx
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -776,7 +923,7 @@ const Checkout = () => {
 
                 <button
                   type="submit"
-                  disabled={processing || cartItems.length === 0}
+                  disabled={processing || cartItems.length === 0 || (requiresPrescription && !hasValidPrescription)}
                   className="hidden sm:flex w-full mt-6 items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {processing ? (
@@ -791,6 +938,12 @@ const Checkout = () => {
                     </>
                   )}
                 </button>
+
+                {requiresPrescription && !hasValidPrescription && (
+                  <p className="text-xs text-red-600 text-center mt-2">
+                    ⚠️ Please upload a valid prescription first
+                  </p>
+                )}
 
                 <div className="mt-4 flex items-start gap-2 text-xs text-gray-600">
                   <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -809,7 +962,7 @@ const Checkout = () => {
           </div>
           <button
             onClick={handlePlaceOrder}
-            disabled={processing || cartItems.length === 0}
+            disabled={processing || cartItems.length === 0 || (requiresPrescription && !hasValidPrescription)}
             className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {processing ? (
@@ -824,6 +977,11 @@ const Checkout = () => {
               </>
             )}
           </button>
+          {requiresPrescription && !hasValidPrescription && (
+            <p className="text-xs text-red-600 text-center mt-2">
+              ⚠️ Prescription required
+            </p>
+          )}
         </div>
       </div>
     </div>

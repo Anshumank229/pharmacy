@@ -3,7 +3,46 @@ import Order from "../models/Order.js";
 import Cart from "../models/Cart.js";
 import Medicine from "../models/Medicine.js";
 import Coupon from "../models/Coupon.js";
+import Prescription from "../models/Prescription.js";
 import { sendOrderConfirmation, sendOrderStatusEmail } from "../services/emailService.js";
+
+// ==========================
+// VALIDATE PRESCRIPTIONS FOR ORDER
+// ==========================
+const validatePrescriptionsForOrder = async (userId, cartItems) => {
+  // Get all medicine IDs from the cart
+  const medicineIds = cartItems.map(item => item.medicine._id);
+  
+  // Find which medicines require prescription
+  const prescriptionMedicines = await Medicine.find({
+    _id: { $in: medicineIds },
+    requiresPrescription: true
+  });
+
+  // If no prescription medicines, return true
+  if (prescriptionMedicines.length === 0) {
+    return true;
+  }
+
+  // Check if user has any approved prescriptions
+  const approvedPrescriptions = await Prescription.find({
+    user: userId,
+    status: 'approved'
+  });
+
+  if (approvedPrescriptions.length === 0) {
+    throw new Error(
+      'This order contains medicines that require a valid prescription. ' +
+      'Please upload your prescription and wait for approval.'
+    );
+  }
+
+  // Optional: Check if prescriptions cover the specific medicines
+  // This depends on your business logic - you might want to check
+  // if the prescription matches the specific medicines being ordered
+  
+  return true;
+};
 
 // ==========================
 // CREATE ORDER (COD or Razorpay Pending)
@@ -22,7 +61,17 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({ message: "Cart is empty" });
     }
 
-    // STEP 2: VALIDATE STOCK
+    // STEP 2: VALIDATE PRESCRIPTIONS
+    try {
+      await validatePrescriptionsForOrder(req.user._id, cart.items);
+    } catch (prescriptionError) {
+      return res.status(400).json({ 
+        message: prescriptionError.message,
+        requiresPrescription: true 
+      });
+    }
+
+    // STEP 3: VALIDATE STOCK
     for (const item of cart.items) {
       if (!item.medicine) {
         return res.status(400).json({ message: "Invalid medicine in cart. Please refresh and try again." });
@@ -34,14 +83,14 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // STEP 3: CALCULATE TOTAL
+    // STEP 4: CALCULATE TOTAL
     const subtotal = cart.items.reduce((sum, item) => sum + item.medicine.price * item.quantity, 0);
     const deliveryCharge = 0; // Free delivery
     let totalAmount = subtotal;
     let appliedCoupon = null;
     let discountAmount = 0;
 
-    // STEP 4: APPLY COUPON
+    // STEP 5: APPLY COUPON
     if (couponCode) {
       const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true });
       if (coupon && totalAmount >= coupon.minOrderAmount) {
@@ -52,14 +101,14 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // STEP 5: BUILD ORDER ITEMS
+    // STEP 6: BUILD ORDER ITEMS
     const orderItems = cart.items.map(item => ({
       medicine: item.medicine._id,
       quantity: item.quantity,
       price: item.medicine.price,
     }));
 
-    // STEP 6: VALIDATE SHIPPING ADDRESS
+    // STEP 7: VALIDATE SHIPPING ADDRESS
     if (!shippingAddress || !shippingAddress.name || !shippingAddress.email || !shippingAddress.phone || 
         !shippingAddress.address || !shippingAddress.city || !shippingAddress.postalCode) {
       return res.status(400).json({ 
@@ -68,7 +117,7 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // STEP 7: TRY TRANSACTION (Replica Set) OR FALLBACK (Standalone)
+    // STEP 8: TRY TRANSACTION (Replica Set) OR FALLBACK (Standalone)
     let session = null;
     let useTransaction = false;
 

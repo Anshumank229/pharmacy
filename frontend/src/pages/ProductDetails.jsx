@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axiosClient';
-import toast from 'react-hot-toast';
 import {
   ShoppingCart,
-  ArrowLeft,
-  Package,
+  Heart,
+  Share2,
+  CheckCircle,
+  AlertTriangle,
+  Info,
   Shield,
-  FileText,
+  Star,
+  Clock,
+  Package,
+  Droplets,
+  Pill,
+  Scale,
+  Thermometer,
+  Leaf,
+  Wheat,
   AlertCircle,
-  Minus,
-  Plus,
-  CheckCircle
+  ArrowLeft,
+  FileText
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import WishlistButton from '../components/WishlistButton';
 
 const ProductDetails = () => {
@@ -21,443 +31,629 @@ const ProductDetails = () => {
   const [medicine, setMedicine] = useState(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [activeTab, setActiveTab] = useState('uses');
   const [similarMedicines, setSimilarMedicines] = useState([]);
-  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
+    fetchMedicineDetails();
+  }, [id]);
 
-        // Fetch current medicine
-        const res = await api.get(`/medicines/${id}`);
-        setMedicine(res.data);
-
-        // Fetch similar medicines from same category
-        setLoadingSimilar(true);
-        try {
-          const allMedicinesRes = await api.get('/medicines');
-          const similar = allMedicinesRes.data
-            .filter(med =>
-              med.category === res.data.category &&
-              med._id !== id
-            )
-            .slice(0, 6); // Limit to 6 items
-          setSimilarMedicines(similar);
-        } catch (err) {
-          console.error('Failed to fetch similar medicines:', err);
-        } finally {
-          setLoadingSimilar(false);
-        }
-      } catch (error) {
-        console.error('Failed to fetch medicine:', error);
-        toast.error('Failed to load medicine details');
-        navigate('/shop');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    window.scrollTo(0, 0); // Scroll to top on navigation
-  }, [id, navigate]);
-
-  const handleAddToCart = async () => {
-    if (!medicine || medicine.stock === 0) {
-      toast.error('This item is out of stock');
-      return;
-    }
-
+  const fetchMedicineDetails = async () => {
     try {
-      await api.post('/cart/add', { medicineId: medicine._id, quantity });
-      toast.success(`Added ${quantity} item(s) to cart!`);
-      setQuantity(1); // Reset quantity after adding
+      setLoading(true);
+      const res = await api.get(`/medicines/${id}`);
+      setMedicine(res.data);
+      
+      // Fetch similar medicines from same category
+      if (res.data.category) {
+        const similarRes = await api.get('/medicines', {
+          params: { 
+            category: res.data.category,
+            limit: 4,
+            exclude: id
+          }
+        });
+        setSimilarMedicines(similarRes.data.medicines || []);
+      }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to add to cart');
+      console.error('Failed to fetch medicine:', error);
+      toast.error('Failed to load medicine details');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleQuantityChange = (e) => {
-    const value = parseInt(e.target.value);
-    if (isNaN(value) || value < 1) {
-      setQuantity(1);
-    } else if (value > medicine.stock) {
-      toast.error(`Only ${medicine.stock} available in stock!`);
-      setQuantity(medicine.stock);
-    } else {
-      setQuantity(value);
+  const addToCart = async () => {
+    try {
+      await api.post('/cart/add', { medicineId: id, quantity });
+      toast.success('Added to cart!');
+    } catch (error) {
+      if (error.response?.status === 401) {
+        toast.error('Please log in to add items to cart');
+      } else {
+        toast.error('Failed to add to cart');
+      }
     }
   };
 
-  const incrementQuantity = () => {
-    if (quantity < medicine.stock) {
-      setQuantity(q => q + 1);
-    } else {
-      toast.error(`Maximum stock limit reached (${medicine.stock} available)`);
-    }
+  const calculateDiscount = () => {
+    if (!medicine?.mrp || !medicine?.price) return 0;
+    return Math.round(((medicine.mrp - medicine.price) / medicine.mrp) * 100);
   };
 
-  const decrementQuantity = () => {
-    if (quantity > 1) {
-      setQuantity(q => q - 1);
-    }
-  };
+  const InfoSection = ({ title, children }) => (
+    <div className="mb-6">
+      <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
+      {children}
+    </div>
+  );
+
+  const PillTag = ({ icon: Icon, label, value }) => (
+    <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg">
+      <Icon className="w-4 h-4 text-blue-600" />
+      <span className="text-sm">
+        <span className="text-gray-500">{label}:</span>{' '}
+        <span className="font-medium text-gray-900">{value}</span>
+      </span>
+    </div>
+  );
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading product details...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   if (!medicine) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <p className="text-xl text-gray-700">Medicine not found</p>
+          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Medicine Not Found</h2>
+          <button
+            onClick={() => navigate('/shop')}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+          >
+            Browse Shop
+          </button>
         </div>
       </div>
     );
   }
 
+  const discount = calculateDiscount();
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+    <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* ============================================ */}
-        {/* BACK NAVIGATION */}
-        {/* ============================================ */}
-        <Link
-          to="/shop"
-          className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold mb-6 transition-colors group"
+        {/* Back Button */}
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-gray-600 hover:text-blue-600 mb-4 transition-colors"
         >
-          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          Back to Shop
-        </Link>
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
 
-        {/* ============================================ */}
-        {/* MAIN PRODUCT SECTION - Grid Layout */}
-        {/* ============================================ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 mb-12">
-          {/* LEFT: Product Image */}
-          <div className="bg-white rounded-2xl shadow-xl p-6 lg:p-8">
-            <div className="relative group">
-              <img
-                src={medicine.imageUrl || 'https://via.placeholder.com/500'}
-                alt={medicine.name}
-                className="w-full h-auto max-h-[500px] object-contain rounded-lg transition-transform duration-300 group-hover:scale-105"
-              />
-              {/* Image Border Decoration */}
-              <div className="absolute inset-0 border-2 border-gray-200 rounded-lg pointer-events-none"></div>
-            </div>
-          </div>
+        {/* Breadcrumb */}
+        <nav className="text-sm text-gray-500 mb-6">
+          <ol className="flex items-center gap-2 flex-wrap">
+            <li><button onClick={() => navigate('/')} className="hover:text-blue-600">Home</button></li>
+            <li>/</li>
+            <li><button onClick={() => navigate('/shop')} className="hover:text-blue-600">Shop</button></li>
+            <li>/</li>
+            <li><button onClick={() => navigate(`/shop?category=${medicine.category}`)} className="hover:text-blue-600">{medicine.category}</button></li>
+            <li>/</li>
+            <li className="text-gray-900 font-medium truncate">{medicine.name}</li>
+          </ol>
+        </nav>
 
-          {/* RIGHT: Product Information */}
-          <div className="bg-white rounded-2xl shadow-xl p-6 lg:p-8">
-            {/* Product Name */}
-            <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-3 leading-tight">
-              {medicine.name}
-            </h1>
+        {/* Main Product Section */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6">
+            {/* Product Image */}
+            <div className="relative">
+              <div className="bg-gradient-to-br from-blue-50 to-gray-100 rounded-2xl p-8 flex items-center justify-center h-96">
+                <img
+                  src={medicine.imageUrl || 'https://via.placeholder.com/400'}
+                  alt={medicine.name}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+              
+              {/* Prescription Badge - Added */}
+              {medicine.requiresPrescription && (
+                <div className="absolute top-4 left-4 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">
+                  <FileText className="w-4 h-4" />
+                  Rx Required
+                </div>
+              )}
 
-            {/* Brand and Category */}
-            <div className="flex items-center gap-3 text-gray-600 mb-6">
-              <span className="font-semibold">{medicine.brand}</span>
-              <span className="text-gray-400">•</span>
-              <span className="text-gray-500">{medicine.category}</span>
-            </div>
+              {/* Action Buttons */}
+              <div className="absolute top-4 right-4 flex gap-2">
+                <WishlistButton medicine={medicine} />
+                <button className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100">
+                  <Share2 className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
 
-            {/* Description */}
-            <p className="text-gray-700 leading-relaxed mb-6 text-base lg:text-lg">
-              {medicine.description}
-            </p>
-
-            {/* Divider */}
-            <div className="border-t border-gray-200 my-6"></div>
-
-            {/* Price */}
-            <div className="mb-6">
-              <p className="text-sm text-gray-600 mb-1">Price</p>
-              <p className="text-4xl lg:text-5xl font-bold text-blue-600">
-                ₹{medicine.price}
-              </p>
-            </div>
-
-            {/* Stock Badge */}
-            <div className="mb-6">
-              {medicine.stock === 0 ? (
-                <span className="inline-flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-full font-semibold">
-                  <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                  Out of Stock
-                </span>
-              ) : medicine.stock < 10 ? (
-                <span className="inline-flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-full font-semibold">
-                  <AlertCircle className="w-4 h-4" />
-                  Only {medicine.stock} left in stock!
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-full font-semibold">
-                  <CheckCircle className="w-4 h-4" />
-                  In Stock ({medicine.stock} available)
-                </span>
+              {/* Discount Badge */}
+              {discount > 0 && (
+                <div className="absolute top-4 left-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                  {discount}% OFF
+                </div>
               )}
             </div>
 
-            {/* Prescription Required Badge */}
-            {medicine.requiresPrescription && (
-              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-3">
-                <FileText className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-orange-800 mb-1">Prescription Required</p>
-                  <p className="text-sm text-orange-700">
-                    This medicine requires a valid prescription. Please upload your prescription during checkout.
-                  </p>
+            {/* Product Info */}
+            <div className="space-y-6">
+              {/* Title & Rating */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <h1 className="text-3xl font-bold text-gray-900">{medicine.name}</h1>
+                  {medicine.requiresPrescription && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-800 text-sm rounded-full">
+                      <FileText className="w-4 h-4" />
+                      Prescription Required
+                    </span>
+                  )}
                 </div>
+                <p className="text-lg text-gray-600 mb-2">{medicine.genericName}</p>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star
+                        key={i}
+                        className={`w-5 h-5 ${
+                          i < (medicine.rating || 4) ? 'text-yellow-400 fill-current' : 'text-gray-300'
+                        }`}
+                      />
+                    ))}
+                    <span className="text-sm text-gray-600 ml-2">
+                      ({medicine.reviewCount || 124} reviews)
+                    </span>
+                  </div>
+                  <span className="text-sm text-gray-500">|</span>
+                  <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4" />
+                    Verified
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Info Tags */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <PillTag icon={Package} label="Form" value={medicine.packagingForm || 'Tablet'} />
+                <PillTag icon={Scale} label="Strength" value={medicine.strength || '500mg'} />
+                <PillTag icon={Droplets} label="Pack Size" value={medicine.packageSize || '15 tablets'} />
+                <PillTag icon={Pill} label="Type" value={medicine.dosageForm || 'Tablet'} />
+                <PillTag icon={Thermometer} label="Storage" value={medicine.storageConditions || 'Room temp'} />
+                <PillTag icon={Clock} label="Shelf Life" value={medicine.shelfLife || '24 months'} />
+              </div>
+
+              {/* Price Section */}
+              <div className="bg-blue-50 rounded-xl p-6">
+                <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+                  <span className="text-3xl font-bold text-blue-600">₹{medicine.price}</span>
+                  {medicine.mrp > medicine.price && (
+                    <>
+                      <span className="text-lg text-gray-400 line-through">₹{medicine.mrp}</span>
+                      <span className="text-sm text-green-600 font-semibold bg-green-100 px-2 py-1 rounded">
+                        Save ₹{medicine.mrp - medicine.price}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="text-sm text-gray-600 mb-4">Inclusive of all taxes</p>
+                
+                {/* Prescription Warning - Added */}
+                {medicine.requiresPrescription && (
+                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <FileText className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-yellow-800">Prescription Required</p>
+                        <p className="text-xs text-yellow-700">
+                          This medicine requires a valid prescription. You'll need to upload it at checkout.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quantity & Add to Cart */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                  <div className="flex items-center border border-gray-300 rounded-lg w-fit">
+                    <button
+                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 transition-colors"
+                    >
+                      -
+                    </button>
+                    <span className="px-4 py-2 border-x border-gray-300 font-medium min-w-[60px] text-center">
+                      {quantity}
+                    </span>
+                    <button
+                      onClick={() => setQuantity(q => q + 1)}
+                      className="px-4 py-2 text-gray-600 hover:bg-gray-100 transition-colors"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    onClick={addToCart}
+                    disabled={medicine.stock === 0}
+                    className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <ShoppingCart className="w-5 h-5" />
+                    {medicine.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Key Highlights */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-900">Key Highlights</h3>
+                <ul className="space-y-2">
+                  {medicine.benefits?.map((benefit, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <span>{benefit}</span>
+                    </li>
+                  )) || (
+                    <li className="flex items-start gap-2 text-sm text-gray-600">
+                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <span>Provides fast relief from acidity and gas</span>
+                    </li>
+                  )}
+                </ul>
+              </div>
+
+              {/* Dietary Info */}
+              <div className="flex flex-wrap gap-3">
+                {medicine.vegetarian && (
+                  <div className="flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm">
+                    <Leaf className="w-4 h-4" />
+                    <span>Vegetarian</span>
+                  </div>
+                )}
+                {medicine.sugarFree && (
+                  <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                    <span>🍬</span>
+                    <span>Sugar Free</span>
+                  </div>
+                )}
+                {medicine.glutenFree && (
+                  <div className="flex items-center gap-1 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                    <Wheat className="w-4 h-4" />
+                    <span>Gluten Free</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Information Tabs */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
+          <div className="border-b border-gray-200">
+            <nav className="flex overflow-x-auto">
+              {[
+                { id: 'uses', label: 'Uses' },
+                { id: 'ingredients', label: 'Ingredients' },
+                { id: 'sideEffects', label: 'Side Effects' },
+                { id: 'warnings', label: 'Warnings' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="p-6">
+            {/* Uses Tab */}
+            {activeTab === 'uses' && (
+              <div className="space-y-6">
+                <InfoSection title="What is this medicine used for?">
+                  <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {medicine.uses?.map((use, i) => (
+                      <li key={i} className="flex items-start gap-2 text-gray-700">
+                        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                        <span>{use}</span>
+                      </li>
+                    )) || (
+                      <>
+                        <li className="flex items-start gap-2 text-gray-700">
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <span>Acidity and heartburn</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-gray-700">
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <span>Gas and bloating</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-gray-700">
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <span>Indigestion</span>
+                        </li>
+                      </>
+                    )}
+                  </ul>
+                </InfoSection>
+
+                <InfoSection title="How to use?">
+                  <div className="bg-blue-50 rounded-xl p-4">
+                    <p className="text-gray-700 mb-3">
+                      {medicine.howToUse || 'Take as directed by your physician. Usually 1-2 tablets after meals or when symptoms appear.'}
+                    </p>
+                    <div className="flex items-start gap-2 text-sm text-gray-600">
+                      <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <span>Do not exceed the recommended dosage. Consult your doctor if symptoms persist.</span>
+                    </div>
+                  </div>
+                </InfoSection>
               </div>
             )}
 
-            {/* Divider */}
-            <div className="border-t border-gray-200 my-6"></div>
+            {/* Ingredients Tab */}
+            {activeTab === 'ingredients' && (
+              <div className="space-y-6">
+                <InfoSection title="Active Ingredients">
+                  <div className="space-y-3">
+                    {medicine.activeIngredients?.map((ing, i) => (
+                      <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Pill className="w-5 h-5 text-blue-600 mt-0.5" />
+                        <div>
+                          <h4 className="font-medium text-gray-900">{ing.name} {ing.strength}</h4>
+                          <p className="text-sm text-gray-600">{ing.role}</p>
+                        </div>
+                      </div>
+                    )) || (
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Pill className="w-5 h-5 text-blue-600 mt-0.5" />
+                        <div>
+                          <h4 className="font-medium text-gray-900">Calcium Carbonate 500mg + Simethicone 25mg</h4>
+                          <p className="text-sm text-gray-600">Neutralizes excess acid and relieves gas</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </InfoSection>
 
-            {/* Quantity Selector */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Quantity
-              </label>
-              <div className="flex items-center gap-4">
-                {/* Quantity Controls */}
-                <div className="flex items-center border-2 border-gray-300 rounded-lg overflow-hidden">
-                  <button
-                    onClick={decrementQuantity}
-                    disabled={quantity <= 1 || medicine.stock === 0}
-                    className="px-4 py-3 bg-gray-50 hover:bg-gray-100 disabled:bg-gray-200 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Decrease quantity"
-                  >
-                    <Minus className="w-5 h-5 text-gray-700" />
-                  </button>
+                <InfoSection title="Other Ingredients">
+                  <ul className="list-disc list-inside text-gray-600 space-y-1">
+                    {medicine.inactiveIngredients?.map((ing, i) => (
+                      <li key={i}>{ing}</li>
+                    )) || (
+                      <>
+                        <li>Microcrystalline Cellulose</li>
+                        <li>Maize Starch</li>
+                        <li>Povidone</li>
+                        <li>Magnesium Stearate</li>
+                        <li>Mint Flavour</li>
+                      </>
+                    )}
+                  </ul>
+                </InfoSection>
+              </div>
+            )}
 
-                  <input
-                    type="number"
-                    value={quantity}
-                    onChange={handleQuantityChange}
-                    disabled={medicine.stock === 0}
-                    className="w-20 text-center text-lg font-semibold border-x-2 border-gray-300 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                    min="1"
-                    max={medicine.stock}
-                  />
-
-                  <button
-                    onClick={incrementQuantity}
-                    disabled={quantity >= medicine.stock || medicine.stock === 0}
-                    className="px-4 py-3 bg-gray-50 hover:bg-gray-100 disabled:bg-gray-200 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Increase quantity"
-                  >
-                    <Plus className="w-5 h-5 text-gray-700" />
-                  </button>
+            {/* Side Effects Tab */}
+            {activeTab === 'sideEffects' && (
+              <div className="space-y-6">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-yellow-800 mb-1">Common side effects</h4>
+                    <p className="text-sm text-yellow-700">Most side effects are mild and temporary.</p>
+                  </div>
                 </div>
 
-                {/* Stock Indicator */}
-                <span className="text-sm text-gray-600">
-                  {medicine.stock > 0 ? `Max: ${medicine.stock} available` : 'Not available'}
-                </span>
-              </div>
-            </div>
-
-            {/* Add to Cart Button */}
-            <button
-              onClick={handleAddToCart}
-              disabled={medicine.stock === 0}
-              className={`w-full py-4 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-3 ${medicine.stock === 0
-                ? 'bg-gray-400 text-gray-700 cursor-not-allowed'
-                : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:shadow-2xl hover:scale-105 active:scale-95'
-                }`}
-            >
-              <ShoppingCart className="w-6 h-6" />
-              {medicine.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
-            </button>
-            <div className="mt-4 flex justify-center">
-              <WishlistButton medicine={medicine} size={30} className="p-3 bg-gray-100 hover:bg-gray-200" />
-              <span className="ml-2 self-center text-gray-600 font-medium">Add to Wishlist</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ============================================ */}
-        {/* ADDITIONAL DETAILS SECTION - Cards Grid */}
-        {/* ============================================ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
-          {/* Product Details Card */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 lg:p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Package className="w-6 h-6 text-blue-600" />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900">Product Details</h3>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-gray-600 font-medium">Brand</span>
-                <span className="font-semibold text-gray-900">{medicine.brand}</span>
-              </div>
-
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-gray-600 font-medium">Category</span>
-                <span className="font-semibold text-gray-900">{medicine.category}</span>
-              </div>
-
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-gray-600 font-medium">Prescription</span>
-                <span className={`font-semibold ${medicine.requiresPrescription ? 'text-orange-600' : 'text-green-600'}`}>
-                  {medicine.requiresPrescription ? (
-                    <span className="flex items-center gap-1">
-                      Required <AlertCircle className="w-4 h-4" />
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1">
-                      Not Required <CheckCircle className="w-4 h-4" />
-                    </span>
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {medicine.sideEffects?.map((effect, i) => (
+                    <li key={i} className="flex items-start gap-2 text-gray-700">
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2" />
+                      <span>{effect}</span>
+                    </li>
+                  )) || (
+                    <>
+                      <li className="flex items-start gap-2 text-gray-700">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2" />
+                        <span>Constipation</span>
+                      </li>
+                      <li className="flex items-start gap-2 text-gray-700">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2" />
+                        <span>Nausea</span>
+                      </li>
+                      <li className="flex items-start gap-2 text-gray-700">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2" />
+                        <span>Diarrhea</span>
+                      </li>
+                    </>
                   )}
-                </span>
+                </ul>
               </div>
+            )}
 
-              <div className="flex justify-between items-center py-3">
-                <span className="text-gray-600 font-medium">Stock Status</span>
-                <span className={`font-semibold ${medicine.stock === 0 ? 'text-red-600' :
-                  medicine.stock < 10 ? 'text-orange-600' :
-                    'text-green-600'
-                  }`}>
-                  {medicine.stock === 0 ? 'Out of Stock' :
-                    medicine.stock < 10 ? `Low Stock (${medicine.stock})` :
-                      `In Stock (${medicine.stock})`}
-                </span>
+            {/* Warnings Tab */}
+            {activeTab === 'warnings' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                    <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Pregnancy
+                    </h4>
+                    <p className="text-sm text-red-700">
+                      {medicine.pregnancyWarning || 'Consult your doctor before using this medicine during pregnancy'}
+                    </p>
+                  </div>
+
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                    <h4 className="font-semibold text-orange-800 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Alcohol
+                    </h4>
+                    <p className="text-sm text-orange-700">
+                      {medicine.alcoholWarning || 'Avoid alcohol while taking this medicine'}
+                    </p>
+                  </div>
+
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                    <h4 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Kidney Issues
+                    </h4>
+                    <p className="text-sm text-yellow-700">
+                      {medicine.kidneyWarning || 'Use with caution if you have kidney problems'}
+                    </p>
+                  </div>
+
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                    <h4 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Liver Issues
+                    </h4>
+                    <p className="text-sm text-yellow-700">
+                      {medicine.liverWarning || 'Consult doctor if you have liver disease'}
+                    </p>
+                  </div>
+                </div>
+
+                {medicine.warnings?.map((warning, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                    <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">{warning}</p>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
+        </div>
 
-          {/* Description Card */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 lg:p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <Shield className="w-6 h-6 text-green-600" />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900">Description</h3>
+        {/* Manufacturer Information */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-8 p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Manufacturer Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <p className="text-gray-600 mb-1">Manufactured By</p>
+              <p className="font-semibold text-gray-900">{medicine.manufacturer || 'Unknown'}</p>
             </div>
-
-            <div className="prose max-w-none">
-              <p className="text-gray-700 leading-relaxed text-base">
-                {medicine.description}
-              </p>
-
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="text-sm text-blue-800 font-medium mb-2">
-                  ✓ 100% Genuine Medicine
-                </p>
-                <p className="text-sm text-blue-700">
-                  All medicines are sourced directly from verified manufacturers and distributors.
-                </p>
-              </div>
+            <div>
+              <p className="text-gray-600 mb-1">Marketed By</p>
+              <p className="font-semibold text-gray-900">{medicine.manufacturer || 'Unknown'}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 mb-1">License Number</p>
+              <p className="font-semibold text-gray-900">{medicine.licenseNumber || 'M/123/456'}</p>
+            </div>
+            <div>
+              <p className="text-gray-600 mb-1">Schedule Type</p>
+              <p className="font-semibold text-gray-900">{medicine.scheduleType || 'H'}</p>
             </div>
           </div>
         </div>
 
-        {/* ============================================ */}
-        {/* SIMILAR MEDICINES SECTION */}
-        {/* ============================================ */}
-        <div className="border-t border-gray-200 pt-12 mt-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
-                Similar Medicines
-              </h2>
-              <p className="text-gray-600">
-                More options in {medicine.category}
-              </p>
+        {/* Prescription Info - Added */}
+        {medicine.requiresPrescription && (
+          <div className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden mb-8 p-6 border border-yellow-200">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <FileText className="w-6 h-6 text-yellow-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-yellow-800 mb-2">Prescription Information</h3>
+                <p className="text-yellow-700 mb-3">
+                  This medicine requires a valid prescription from a registered medical practitioner.
+                </p>
+                <ul className="space-y-1 text-sm text-yellow-700 list-disc list-inside">
+                  <li>Upload your prescription at checkout</li>
+                  <li>Our pharmacists will verify it within 24-48 hours</li>
+                  <li>You'll be notified via email once approved</li>
+                  <li>Order will be processed only after approval</li>
+                </ul>
+                <button
+                  onClick={() => navigate('/upload-prescription')}
+                  className="mt-4 inline-flex items-center gap-2 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
+                >
+                  <FileText className="w-4 h-4" />
+                  Upload Prescription
+                </button>
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Loading State */}
-          {loadingSimilar ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="bg-gray-100 rounded-lg h-80 animate-pulse"></div>
-              ))}
-            </div>
-          ) : similarMedicines.length === 0 ? (
-            /* Empty State */
-            <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-              <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg mb-4">No similar medicines available</p>
-              <button
-                onClick={() => navigate('/shop')}
-                className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold transition-colors"
-              >
-                Browse All Medicines
-                <ArrowLeft className="w-4 h-4 rotate-180" />
-              </button>
-            </div>
-          ) : (
-            /* Medicine Cards Grid */
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+        {/* Similar Medicines - Fully Clickable Cards */}
+        {similarMedicines.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg overflow-hidden p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Similar Medicines</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {similarMedicines.map((med) => (
                 <div
                   key={med._id}
                   onClick={() => navigate(`/product/${med._id}`)}
-                  className="group bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 cursor-pointer"
+                  className="group border border-gray-200 rounded-lg p-4 hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer bg-white"
                 >
-                  {/* Medicine Image */}
-                  <div className="h-40 sm:h-48 bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
+                  <div className="w-full h-32 bg-gray-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
                     <img
-                      src={med.imageUrl || 'https://via.placeholder.com/200'}
+                      src={med.imageUrl || 'https://via.placeholder.com/150'}
                       alt={med.name}
                       className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300"
+                      onError={(e) => {
+                        e.target.src = 'https://via.placeholder.com/150';
+                      }}
                     />
                   </div>
-
-                  {/* Medicine Info */}
-                  <div className="p-4">
-                    <h4 className="font-bold text-base sm:text-lg text-gray-900 mb-1 line-clamp-2 min-h-[3rem]">
-                      {med.name}
-                    </h4>
-                    <p className="text-sm text-gray-500 mb-3">{med.brand}</p>
-
-                    {/* Price and Stock */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xl sm:text-2xl font-bold text-blue-600">
-                        ₹{med.price}
-                      </span>
-                      {med.stock > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
-                          <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                          In Stock
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                          <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                          Out of Stock
-                        </span>
-                      )}
+                  <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2 group-hover:text-blue-600 transition-colors">
+                    {med.name}
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-2 line-clamp-1">{med.manufacturer || 'Generic'}</p>
+                  {med.requiresPrescription && (
+                    <span className="inline-flex items-center gap-1 mb-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
+                      <FileText className="w-3 h-3" />
+                      Rx
+                    </span>
+                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-lg font-bold text-blue-600">₹{med.price}</span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toast.success(`Added ${med.name} to cart!`);
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                        title="Quick Add"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/product/${med._id}`);
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                      >
+                        View
+                      </button>
                     </div>
-
-                    {/* View Details Button */}
-                    <button
-                      className="w-full py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/product/${med._id}`);
-                      }}
-                    >
-                      View Details
-                    </button>
                   </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
