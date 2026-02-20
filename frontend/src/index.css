@@ -19,3 +19,20 @@ textarea:focus {
   outline: none;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
 }
+
+/* Helper: force left-to-right input for textareas when needed */
+.ltr-textarea {
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+/* Strong override in case an ancestor or plugin forces RTL */
+textarea.ltr-textarea,
+.ltr-textarea textarea,
+.ltr-textarea {
+  direction: ltr !important;
+  unicode-bidi: plaintext !important;
+  text-align: left !important;
+}
+

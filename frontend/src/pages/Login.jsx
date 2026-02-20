@@ -17,11 +17,24 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      // FIX: Remove duplicate login call
-      await login(email, password);
+      // Get user data after login
+      const userData = await login(email, password);
+      
+      console.log("Login successful - User data:", userData); // Debug log
+      
       toast.success("Login successful!");
-      navigate(from, { replace: true });
+      
+      // FIX: Check user role and redirect accordingly
+      // Check both role and isAdmin properties
+      if (userData?.role === 'admin' || userData?.isAdmin === true) {
+        console.log("Redirecting admin to /admin/dashboard");
+        navigate('/admin/dashboard', { replace: true });
+      } else {
+        console.log("Redirecting user to:", from);
+        navigate(from, { replace: true });
+      }
     } catch (err) {
+      console.error("Login error:", err);
       toast.error(err.response?.data?.message || "Invalid credentials");
     } finally {
       setLoading(false);

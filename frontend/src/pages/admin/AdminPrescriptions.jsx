@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import api from "../../api/axiosClient";
 import toast from "react-hot-toast";
 
@@ -22,6 +22,7 @@ const AdminPrescriptions = () => {
     const [processingId, setProcessingId] = useState(null);
     // Per-card reject state: { [id]: { open: bool, reason: string } }
     const [rejectState, setRejectState] = useState({});
+    const textareaRefs = useRef({}); // map of id -> textarea DOM node to preserve caret
 
     useEffect(() => { loadAll(); }, []);
 
@@ -74,8 +75,29 @@ const AdminPrescriptions = () => {
     const openReject = (id) =>
         setRejectState(prev => ({ ...prev, [id]: { open: true, reason: prev[id]?.reason || "" } }));
 
-    const setReason = (id, val) =>
+    // Preserve caret/selection when updating controlled textarea value
+    const handleReasonChange = (id, e) => {
+        const el = e.target;
+        const val = el.value;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+
         setRejectState(prev => ({ ...prev, [id]: { ...prev[id], reason: val } }));
+
+        // Restore selection on next paint (after React updates the value)
+        requestAnimationFrame(() => {
+            const node = textareaRefs.current[id];
+            if (node) {
+                try {
+                    node.selectionStart = start;
+                    node.selectionEnd = end;
+                    node.focus();
+                } catch (err) {
+                    // ignore if browser doesn't allow selection reset
+                }
+            }
+        });
+    };
 
     const formatDate = (d) => new Date(d).toLocaleDateString("en-IN", {
         day: "numeric", month: "short", year: "numeric",
@@ -177,11 +199,13 @@ const AdminPrescriptions = () => {
                                 ) : (
                                     <div className="space-y-2">
                                         <textarea
+                                            dir="ltr"
                                             rows={2}
+                                            ref={el => { textareaRefs.current[_id] = el }}
                                             value={rs.reason}
-                                            onChange={e => setReason(_id, e.target.value)}
+                                            onChange={e => handleReasonChange(_id, e)}
                                             placeholder="Rejection reason (required)…"
-                                            className="w-full border border-red-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-400 resize-none"
+                                            className="w-full ltr-textarea border border-red-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-400 resize-none"
                                             autoFocus
                                         />
                                         <div className="flex gap-2">
