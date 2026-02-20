@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"; // Make sure Navigate is imported
 
 // Layouts
 import MainLayout from "./layouts/MainLayout";
@@ -34,6 +34,9 @@ import TermsOfService from "./pages/TermsOfService.jsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import MedicalDisclaimer from "./pages/MedicalDisclaimer.jsx";
 
+// Contact Page
+import Contact from "./pages/Contact.jsx";
+
 // Admin Pages
 import AdminLogin from "./pages/admin/AdminLogin.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
@@ -68,7 +71,10 @@ function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/disclaimer" element={<MedicalDisclaimer />} />
 
-          {/* ===== ADMIN LOGIN PAGE - NOW WITH NAVBAR ===== */}
+          {/* ===== CONTACT PAGE ===== */}
+          <Route path="/contact" element={<Contact />} />
+
+          {/* ===== ADMIN LOGIN PAGE ===== */}
           <Route path="/admin-login" element={<AdminLogin />} />
 
           {/* ===== PROTECTED USER ROUTES ===== */}
@@ -84,7 +90,17 @@ function App() {
           <Route path="/request-medicine" element={<ProtectedRoute><RequestMedicine /></ProtectedRoute>} />
           <Route path="/my-requests" element={<ProtectedRoute><MyRequests /></ProtectedRoute>} />
 
-          {/* ===== ADMIN ROUTES (All with same navbar) ===== */}
+          {/* ===== ADMIN ROUTES ===== */}
+          
+          {/* FIX: Add redirect from /admin to /admin/dashboard */}
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <Navigate to="/admin/dashboard" replace />
+              </AdminRoute>
+            </ProtectedRoute>
+          } />
+          
           <Route path="/admin/dashboard" element={
             <ProtectedRoute>
               <AdminRoute>

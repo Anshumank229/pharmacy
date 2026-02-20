@@ -17,23 +17,24 @@ const AdminLogin = () => {
 
     try {
       // Use the context login function which sets the cookie and user state
-      await login(email, password);
+      const userData = await login(email, password);
 
-      // We need to check the role *after* login. 
-      // However, context 'user' state might not update instantly in this function scope.
-      // But Since 'login' awaited the 'getMe' call, the cookie is set.
-      // We can redirect to /admin, and AdminRoute will verify the role.
-      // If the user is NOT an admin, AdminRoute will kick them out (to /).
+      console.log("Admin login response:", userData); // Debug log
 
-      // Let's assume login validates credentials. 
-      // Ideally, the backend login response handles role check or we fetch user.
-      // Context.login fetches user. AdminRoute checks user.role.
-      // So we just navigate to /admin.
-
-      navigate("/admin", { replace: true });
-      toast.success("Welcome back, Admin!");
+      // Check if user is admin
+      if (userData?.role === 'admin' || userData?.isAdmin === true) {
+        // Redirect to admin dashboard, not /admin
+        navigate("/admin/dashboard", { replace: true });
+        toast.success("Welcome back, Admin!");
+      } else {
+        // User is not admin - show error and logout
+        toast.error("You don't have admin privileges");
+        // Optional: logout the user since they're not admin
+        // You might want to add a logout function here
+      }
 
     } catch (err) {
+      console.error("Admin login error:", err);
       toast.error(err.response?.data?.message || "Invalid credentials");
     } finally {
       setLoading(false);

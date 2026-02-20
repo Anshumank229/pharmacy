@@ -1,7 +1,8 @@
 import { createContext, useState, useEffect } from "react";
 import api from "../api/axiosClient";
 
-export const AuthContext = createContext();
+const AuthContext = createContext();
+export { AuthContext }; // Export at the bottom for better readability
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -31,7 +32,10 @@ export const AuthProvider = ({ children }) => {
     await api.post("/auth/login", { email, password });
     // After login, fetch user profile (cookie is now set)
     const userRes = await api.get("/auth/me");
-    setUser(userRes.data);
+    const userData = userRes.data;
+    setUser(userData);
+    // FIX: Return the user data so components can use it
+    return userData;
   };
 
   // Handle Register — cookie is set by the server automatically
@@ -39,7 +43,10 @@ export const AuthProvider = ({ children }) => {
     await api.post("/auth/register", data);
     // After register, fetch user profile (cookie is now set)
     const userRes = await api.get("/auth/me");
-    setUser(userRes.data);
+    const userData = userRes.data;
+    setUser(userData);
+    // FIX: Return the user data
+    return userData;
   };
 
   // Handle Logout — call backend to clear the HttpOnly cookie
