@@ -1,4 +1,5 @@
 import Coupon from "../models/Coupon.js";
+import logger from "../utils/logger.js";
 
 // =====================================================
 // ADMIN: Create Coupon
@@ -24,24 +25,24 @@ export const createCoupon = async (req, res) => {
     if (!couponData.code) {
       return res.status(400).json({ message: "Coupon code is required" });
     }
-    
+
     if (!couponData.discountPercent || couponData.discountPercent <= 0 || couponData.discountPercent > 100) {
       return res.status(400).json({ message: "Valid discount percent (1-100) is required" });
     }
 
-    console.log("📝 Creating new coupon:", couponData.code);
-    
+    logger.info("Creating new coupon:", couponData.code);
+
     // Check if coupon code already exists
     const existingCoupon = await Coupon.findOne({ code: couponData.code });
     if (existingCoupon) {
       return res.status(400).json({ message: "Coupon code already exists" });
     }
-    
+
     const coupon = await Coupon.create(couponData);
-    console.log("✅ Coupon created successfully:", coupon.code);
+    logger.info("Coupon created:", coupon.code);
     res.status(201).json(coupon);
   } catch (error) {
-    console.error("❌ Failed to create coupon:", error.message);
+    logger.error("Failed to create coupon:", error.message);
     res.status(500).json({ message: "Failed to create coupon", error: error.message });
   }
 };
@@ -51,22 +52,20 @@ export const createCoupon = async (req, res) => {
 // =====================================================
 export const getCoupons = async (req, res) => {
   try {
-    console.log("📋 Fetching all coupons");
     const { isActive, page = 1, limit = 50 } = req.query;
-    
+
     const query = {};
     if (isActive !== undefined) {
       query.isActive = isActive === 'true';
     }
-    
+
     const coupons = await Coupon.find(query)
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
-    
+
     const total = await Coupon.countDocuments(query);
-    
-    console.log(`✅ Found ${coupons.length} coupons`);
+
     res.json({
       coupons,
       page: parseInt(page),
@@ -74,7 +73,7 @@ export const getCoupons = async (req, res) => {
       total
     });
   } catch (error) {
-    console.error("❌ Failed to fetch coupons:", error.message);
+    logger.error("Failed to fetch coupons:", error.message);
     res.status(500).json({ message: "Failed to fetch coupons" });
   }
 };
@@ -85,14 +84,14 @@ export const getCoupons = async (req, res) => {
 export const getCouponById = async (req, res) => {
   try {
     const coupon = await Coupon.findById(req.params.id);
-    
+
     if (!coupon) {
       return res.status(404).json({ message: "Coupon not found" });
     }
-    
+
     res.json(coupon);
   } catch (error) {
-    console.error("❌ Failed to fetch coupon:", error.message);
+    logger.error("Failed to fetch coupon:", error.message);
     res.status(500).json({ message: "Failed to fetch coupon" });
   }
 };
@@ -103,11 +102,11 @@ export const getCouponById = async (req, res) => {
 export const updateCoupon = async (req, res) => {
   try {
     const coupon = await Coupon.findById(req.params.id);
-    
+
     if (!coupon) {
       return res.status(404).json({ message: "Coupon not found" });
     }
-    
+
     // Update fields (with standardization)
     if (req.body.code) coupon.code = req.body.code.trim().toUpperCase();
     if (req.body.discountPercent || req.body.discount) {
@@ -126,12 +125,12 @@ export const updateCoupon = async (req, res) => {
     if (req.body.usageLimit !== undefined) coupon.usageLimit = req.body.usageLimit;
     if (req.body.isActive !== undefined) coupon.isActive = req.body.isActive;
     if (req.body.description !== undefined) coupon.description = req.body.description;
-    
+
     await coupon.save();
-    
+
     res.json(coupon);
   } catch (error) {
-    console.error("❌ Failed to update coupon:", error.message);
+    logger.error("Failed to update coupon:", error.message);
     res.status(500).json({ message: "Failed to update coupon" });
   }
 };
@@ -141,17 +140,16 @@ export const updateCoupon = async (req, res) => {
 // =====================================================
 export const deleteCoupon = async (req, res) => {
   try {
-    console.log("🗑️ Deleting coupon:", req.params.id);
     const coupon = await Coupon.findByIdAndDelete(req.params.id);
-    
+
     if (!coupon) {
       return res.status(404).json({ message: "Coupon not found" });
     }
-    
-    console.log("✅ Coupon deleted successfully");
+
+    logger.info("Coupon deleted:", coupon.code);
     res.json({ message: "Coupon deleted", code: coupon.code });
   } catch (error) {
-    console.error("❌ Failed to delete coupon:", error.message);
+    logger.error("Failed to delete coupon:", error.message);
     res.status(500).json({ message: "Failed to delete coupon" });
   }
 };
@@ -162,8 +160,6 @@ export const deleteCoupon = async (req, res) => {
 export const validateCoupon = async (req, res) => {
   try {
     const { code, cartTotal } = req.body;
-
-    console.log(`🎫 Validating coupon: "${code}" for cart total: ₹${cartTotal}`);
 
     if (!code || cartTotal === undefined) {
       return res.status(400).json({
@@ -177,7 +173,6 @@ export const validateCoupon = async (req, res) => {
     const coupon = await Coupon.findOne({ code: normalizedCode });
 
     if (!coupon) {
-      console.log("❌ Invalid coupon code");
       return res.status(404).json({
         valid: false,
         message: "Invalid coupon code",
@@ -186,7 +181,6 @@ export const validateCoupon = async (req, res) => {
 
     // Check if active
     if (!coupon.isActive) {
-      console.log("❌ Coupon is not active");
       return res.status(400).json({
         valid: false,
         message: "Coupon is not active",
@@ -196,7 +190,6 @@ export const validateCoupon = async (req, res) => {
     // Check validity period
     const now = new Date();
     if (coupon.validFrom && coupon.validFrom > now) {
-      console.log("❌ Coupon not yet valid");
       return res.status(400).json({
         valid: false,
         message: `Coupon is valid from ${coupon.validFrom.toLocaleDateString()}`,
@@ -204,7 +197,6 @@ export const validateCoupon = async (req, res) => {
     }
 
     if (coupon.validUntil && coupon.validUntil < now) {
-      console.log("❌ Coupon has expired");
       return res.status(400).json({
         valid: false,
         message: "Coupon has expired",
@@ -213,7 +205,6 @@ export const validateCoupon = async (req, res) => {
 
     // Check minimum order amount (using standardized minOrderAmount)
     if (cartTotal < coupon.minOrderAmount) {
-      console.log(`❌ Cart total below minimum: ₹${cartTotal} < ₹${coupon.minOrderAmount}`);
       return res.status(400).json({
         valid: false,
         message: `Minimum order amount of ₹${coupon.minOrderAmount} required`,
@@ -222,25 +213,63 @@ export const validateCoupon = async (req, res) => {
 
     // Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      console.log("❌ Coupon usage limit exceeded");
       return res.status(400).json({
         valid: false,
         message: "Coupon usage limit has been reached",
       });
     }
 
+    // FIX-13: Per-user checks — mirror the same guards used in createOrder
+    // Check per-user usage limit (default 1)
+    if (req.user) {
+      const perUserLimit = coupon.perUserLimit ?? 1;
+      const userUsageCount = coupon.usedBy
+        ? coupon.usedBy.filter(e => e.user.toString() === req.user._id.toString()).length
+        : 0;
+      if (userUsageCount >= perUserLimit) {
+        return res.status(400).json({
+          valid: false,
+          message: `You have already used this coupon the maximum number of times (${perUserLimit})`,
+        });
+      }
+
+      // First time only
+      if (coupon.firstTimeOnly) {
+        const Order = (await import("../models/Order.js")).default;
+        const previousOrders = await Order.countDocuments({
+          user: req.user._id,
+          orderStatus: { $ne: "cancelled" }
+        });
+        if (previousOrders > 0) {
+          return res.status(400).json({
+            valid: false,
+            message: "This coupon is for first-time orders only",
+          });
+        }
+      }
+
+      // User-specific coupon
+      if (coupon.userSpecific && coupon.applicableUsers.length > 0) {
+        const isAllowed = coupon.applicableUsers
+          .some(id => id.toString() === req.user._id.toString());
+        if (!isAllowed) {
+          return res.status(400).json({
+            valid: false,
+            message: "This coupon is not valid for your account",
+          });
+        }
+      }
+    }
+
     // Calculate discount
     let discountAmount = Math.round((cartTotal * coupon.discountPercent) / 100);
-    
+
     // Apply max discount cap if set
     if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
       discountAmount = coupon.maxDiscount;
     }
 
     const finalAmount = cartTotal - discountAmount;
-
-    console.log(`✅ Coupon valid! Discount: ₹${discountAmount} (${coupon.discountPercent}%)`);
-    console.log(`💰 Final amount: ₹${finalAmount}`);
 
     res.status(200).json({
       valid: true,
@@ -252,39 +281,11 @@ export const validateCoupon = async (req, res) => {
       message: `Coupon applied! You saved ₹${discountAmount}`,
     });
   } catch (error) {
-    console.error("❌ Coupon validation error:", error.message);
+    logger.error("Coupon validation error:", error.message);
     res.status(500).json({
       valid: false,
       message: "Failed to validate coupon",
-      error: error.message,
     });
-  }
-};
-
-// =====================================================
-// USER: Apply Coupon to Order (increment usage count)
-// =====================================================
-export const applyCouponToOrder = async (req, res) => {
-  try {
-    const { couponId } = req.body;
-    
-    const coupon = await Coupon.findById(couponId);
-    
-    if (!coupon) {
-      return res.status(404).json({ message: "Coupon not found" });
-    }
-    
-    // Increment usage count
-    coupon.usedCount = (coupon.usedCount || 0) + 1;
-    await coupon.save();
-    
-    res.json({
-      success: true,
-      message: "Coupon applied successfully"
-    });
-  } catch (error) {
-    console.error("❌ Failed to apply coupon:", error.message);
-    res.status(500).json({ message: "Failed to apply coupon" });
   }
 };
 
@@ -304,17 +305,17 @@ export const getCouponStats = async (req, res) => {
         }
       }
     ]);
-    
+
     const recentlyExpired = await Coupon.find({
       validUntil: { $lt: new Date(), $gt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
     }).countDocuments();
-    
+
     res.json({
       stats: stats[0] || { totalCoupons: 0, activeCoupons: 0, totalUses: 0, avgDiscount: 0 },
       recentlyExpired
     });
   } catch (error) {
-    console.error("❌ Failed to get coupon stats:", error.message);
+    logger.error("Failed to get coupon stats:", error.message);
     res.status(500).json({ message: "Failed to get coupon statistics" });
   }
 };

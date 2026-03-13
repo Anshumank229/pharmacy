@@ -4,98 +4,105 @@ import mongoose from "mongoose";
 const couponSchema = new mongoose.Schema(
   {
     // Core fields
-    code: { 
-      type: String, 
-      required: true, 
+    code: {
+      type: String,
+      required: true,
       unique: true,
       uppercase: true,
       trim: true
     },
-    discountPercent: { 
-      type: Number, 
+    discountPercent: {
+      type: Number,
       required: true,
       min: 0,
       max: 100
     },
-    
+
     // FIX: Standardized field name from 'minAmount' to 'minOrderAmount'
-    minOrderAmount: { 
-      type: Number, 
+    minOrderAmount: {
+      type: Number,
       default: 0,
       min: 0
     },
-    
+
     // FIX: Standardized field name from 'expiryDate' to 'validUntil'
-    validUntil: { 
-      type: Date 
+    validUntil: {
+      type: Date
     },
-    
+
     // Additional fields for better coupon management
-    validFrom: { 
+    validFrom: {
       type: Date,
-      default: Date.now 
+      default: Date.now
     },
-    
-    maxDiscount: { 
+
+    maxDiscount: {
       type: Number,
       min: 0,
       comment: "Maximum discount amount in rupees"
     },
-    
-    usageLimit: { 
+
+    usageLimit: {
       type: Number,
       default: null,
       comment: "Maximum number of times this coupon can be used"
     },
-    
-    usedCount: { 
-      type: Number, 
+
+    usedCount: {
+      type: Number,
       default: 0,
       min: 0
     },
-    
-    isActive: { 
-      type: Boolean, 
-      default: true 
+
+    isActive: {
+      type: Boolean,
+      default: true
     },
-    
-    description: { 
+
+    description: {
       type: String,
       default: ''
     },
-    
+
     // For admin use
-    createdBy: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: "User" 
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
     },
-    
+
     applicableCategories: [{
       type: String,
       comment: "Specific medicine categories this coupon applies to"
     }],
-    
+
     excludedProducts: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "Medicine"
     }],
-    
-    firstTimeOnly: { 
-      type: Boolean, 
-      default: false 
+
+    firstTimeOnly: {
+      type: Boolean,
+      default: false
     },
-    
-    userSpecific: { 
-      type: Boolean, 
-      default: false 
+
+    userSpecific: {
+      type: Boolean,
+      default: false
     },
-    
+
     applicableUsers: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
+    }],
+
+    // UPGRADE 3: Advanced coupon rules — per-user usage limits + usage tracking
+    perUserLimit: { type: Number, default: 1 },
+    usedBy: [{
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      usedAt: { type: Date, default: Date.now }
     }]
   },
-  { 
+  {
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
@@ -105,12 +112,12 @@ const couponSchema = new mongoose.Schema(
 // ─── Virtuals ─────────────────────────────────────────────────────────────────
 
 // Check if coupon is expired
-couponSchema.virtual('isExpired').get(function() {
+couponSchema.virtual('isExpired').get(function () {
   return this.validUntil && this.validUntil < new Date();
 });
 
 // Check if coupon is valid (active, not expired, within date range)
-couponSchema.virtual('isValid').get(function() {
+couponSchema.virtual('isValid').get(function () {
   const now = new Date();
   const validFromCheck = !this.validFrom || this.validFrom <= now;
   const validUntilCheck = !this.validUntil || this.validUntil >= now;
@@ -118,12 +125,12 @@ couponSchema.virtual('isValid').get(function() {
 });
 
 // Check if usage limit reached
-couponSchema.virtual('isUsageLimitReached').get(function() {
+couponSchema.virtual('isUsageLimitReached').get(function () {
   return this.usageLimit && this.usedCount >= this.usageLimit;
 });
 
 // Remaining uses
-couponSchema.virtual('remainingUses').get(function() {
+couponSchema.virtual('remainingUses').get(function () {
   if (!this.usageLimit) return null;
   return Math.max(0, this.usageLimit - this.usedCount);
 });
@@ -131,7 +138,7 @@ couponSchema.virtual('remainingUses').get(function() {
 // ─── Methods ─────────────────────────────────────────────────────────────────
 
 // Check if coupon can be applied to a specific cart total
-couponSchema.methods.canBeApplied = function(cartTotal) {
+couponSchema.methods.canBeApplied = function (cartTotal) {
   if (!this.isValid) return false;
   if (cartTotal < this.minOrderAmount) return false;
   if (this.isUsageLimitReached) return false;
@@ -139,19 +146,19 @@ couponSchema.methods.canBeApplied = function(cartTotal) {
 };
 
 // Calculate discount amount
-couponSchema.methods.calculateDiscount = function(cartTotal) {
+couponSchema.methods.calculateDiscount = function (cartTotal) {
   let discount = Math.round((cartTotal * this.discountPercent) / 100);
-  
+
   // Apply max discount cap if exists
   if (this.maxDiscount && discount > this.maxDiscount) {
     discount = this.maxDiscount;
   }
-  
+
   return discount;
 };
 
 // Increment usage count
-couponSchema.methods.incrementUsage = async function() {
+couponSchema.methods.incrementUsage = async function () {
   this.usedCount += 1;
   return this.save();
 };
@@ -171,6 +178,9 @@ couponSchema.index({ validFrom: 1, validUntil: 1 });
 // For usage limit queries
 couponSchema.index({ usageLimit: 1, usedCount: 1 });
 
+// For per-user usage checks (UPGRADE 3)
+couponSchema.index({ "usedBy.user": 1 });
+
 // For admin analytics
 couponSchema.index({ createdAt: -1 });
 couponSchema.index({ discountPercent: 1 });
@@ -178,7 +188,7 @@ couponSchema.index({ discountPercent: 1 });
 // ─── Pre-save Middleware ─────────────────────────────────────────────────────
 
 // Ensure code is always uppercase and trimmed
-couponSchema.pre('save', function(next) {
+couponSchema.pre('save', function (next) {
   if (this.code) {
     this.code = this.code.toUpperCase().trim();
   }
@@ -186,7 +196,7 @@ couponSchema.pre('save', function(next) {
 });
 
 // Validate dates
-couponSchema.pre('save', function(next) {
+couponSchema.pre('save', function (next) {
   if (this.validFrom && this.validUntil && this.validFrom > this.validUntil) {
     next(new Error('Valid from date cannot be after valid until date'));
   }

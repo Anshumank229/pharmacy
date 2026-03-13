@@ -2,7 +2,7 @@ import { createContext, useState, useEffect } from "react";
 import api from "../api/axiosClient";
 
 const AuthContext = createContext();
-export { AuthContext }; // Export at the bottom for better readability
+export { AuthContext };
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -16,7 +16,9 @@ export const AuthProvider = ({ children }) => {
       const res = await api.get("/auth/me");
       setUser(res.data);
     } catch {
-      // Cookie absent or expired — user is not logged in
+      // Cookie absent or expired — user is not logged in.
+      // The axiosClient interceptor would have tried a silent refresh
+      // already, so if we still fail, the user genuinely has no session.
       setUser(null);
     } finally {
       setLoading(false);
@@ -27,29 +29,27 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, []);
 
-  // Handle Login — cookie is set by the server automatically
+  // Handle Login — cookies are set by the server automatically
   const login = async (email, password) => {
     await api.post("/auth/login", { email, password });
-    // After login, fetch user profile (cookie is now set)
+    // After login, fetch user profile (cookies are now set)
     const userRes = await api.get("/auth/me");
     const userData = userRes.data;
     setUser(userData);
-    // FIX: Return the user data so components can use it
     return userData;
   };
 
-  // Handle Register — cookie is set by the server automatically
+  // Handle Register — cookies are set by the server automatically
   const register = async (data) => {
     await api.post("/auth/register", data);
-    // After register, fetch user profile (cookie is now set)
+    // After register, fetch user profile (cookies are now set)
     const userRes = await api.get("/auth/me");
     const userData = userRes.data;
     setUser(userData);
-    // FIX: Return the user data
     return userData;
   };
 
-  // Handle Logout — call backend to clear the HttpOnly cookie
+  // Handle Logout — call backend to clear all HttpOnly cookies
   const logout = async () => {
     try {
       await api.post("/auth/logout");
@@ -60,7 +60,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import api from "../../api/axiosClient";
 import toast from "react-hot-toast";
-import { Plus, X, User, Mail, Lock, Phone, MapPin, UserCog } from "lucide-react";
+import { Plus, X, User, Mail, Lock, Phone, MapPin, UserCog, Trash2, AlertTriangle } from "lucide-react";
 
 const AdminUsers = () => {
   const [users, setUsers] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -15,7 +18,6 @@ const AdminUsers = () => {
   const loadUsers = async (currentPage = 1) => {
     try {
       setLoading(true);
-      // Correct endpoint: GET /api/admin/users (paginated)
       const res = await api.get("/admin/users", { params: { page: currentPage, limit: LIMIT } });
       setUsers(res.data.users || []);
       setPage(res.data.page || 1);
@@ -26,6 +28,29 @@ const AdminUsers = () => {
       toast.error("Failed to load users");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteClick = (user) => {
+    setUserToDelete(user);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    setDeleteLoading(true);
+    try {
+      await api.delete(`/admin/users/${userToDelete._id}`);
+      toast.success(`User ${userToDelete.name} deleted successfully`);
+      loadUsers(page);
+      setShowDeleteModal(false);
+      setUserToDelete(null);
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error(error.response?.data?.message || "Failed to delete user");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -65,12 +90,13 @@ const AdminUsers = () => {
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Phone</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Role</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Joined</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-12">
+                    <td colSpan="6" className="text-center py-12">
                       <div className="flex flex-col items-center">
                         <User className="w-12 h-12 text-gray-300 mb-3" />
                         <p className="text-gray-500 font-medium mb-2">No users found</p>
@@ -101,6 +127,15 @@ const AdminUsers = () => {
                       </td>
                       <td className="px-6 py-4 text-gray-500 text-sm">
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-IN") : "N/A"}
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => handleDeleteClick(u)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -137,6 +172,69 @@ const AdminUsers = () => {
           onSuccess={() => { loadUsers(1); setShowModal(false); }}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && userToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">Delete User</h2>
+              </div>
+              
+              <p className="text-gray-600 mb-2">
+                Are you sure you want to delete <span className="font-semibold">{userToDelete.name}</span>?
+              </p>
+              <p className="text-sm text-gray-500 mb-6">
+                This action cannot be undone. All data associated with this user will be permanently removed.
+              </p>
+
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <div className="space-y-2">
+                  <p className="text-sm"><span className="font-medium">Email:</span> {userToDelete.email}</p>
+                  <p className="text-sm"><span className="font-medium">Role:</span> {userToDelete.role}</p>
+                  {userToDelete.phone && (
+                    <p className="text-sm"><span className="font-medium">Phone:</span> {userToDelete.phone}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setUserToDelete(null);
+                  }}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteUser}
+                  disabled={deleteLoading}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleteLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete User
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -163,8 +261,6 @@ const CreateUserModal = ({ onClose, onSuccess }) => {
     if (!validate()) return toast.error("Please fix the errors");
     setLoading(true);
     try {
-      // FIX: Use admin endpoint instead of auth/register
-      // This prevents the admin session from being overwritten
       await api.post("/admin/users", formData);
       toast.success("User created successfully!");
       onSuccess();

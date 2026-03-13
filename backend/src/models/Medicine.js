@@ -21,8 +21,13 @@ const medicineSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ─── Indexes for query performance ────────────────────────────────────────────
-medicineSchema.index({ name: "text" });   // Full-text search on name
+// M8: Compound weighted text index — search matches on name, brand AND description.
+// Weights: name (10) >> brand (5) >> description (1)
+// MIGRATION: drop old index first: db.medicines.dropIndex("name_text")
+medicineSchema.index(
+  { name: "text", description: "text", brand: "text" },
+  { weights: { name: 10, brand: 5, description: 1 }, name: "medicine_text_search" }
+);
 medicineSchema.index({ category: 1 });    // Filter by category
 medicineSchema.index({ price: 1 });       // Sort/filter by price
 medicineSchema.index({ stock: 1 });       // Filter low-stock items

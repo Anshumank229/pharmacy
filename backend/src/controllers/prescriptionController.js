@@ -3,11 +3,12 @@ import { sendPrescriptionStatus, sendPrescriptionStatusEmail } from "../services
 import { isCloudinaryConfigured, uploadToCloudinary } from "../services/cloudinaryService.js";
 import fs from "fs";
 import path from "path";
+import logger from "../utils/logger.js";
 
 // USER: Upload Prescription
 export const uploadPrescription = async (req, res) => {
   try {
-    console.log("Upload Prescription - User:", req.user._id);
+    logger.info("Upload Prescription - User:", req.user._id);
 
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
@@ -19,20 +20,20 @@ export const uploadPrescription = async (req, res) => {
 
     if (isCloudinaryConfigured() && req.file.buffer) {
       // ── Cloudinary path ──────────────────────────────────────────────────────
-      console.log("☁️ Uploading prescription to Cloudinary...");
+      logger.info("Uploading prescription to Cloudinary...");
       const result = await uploadToCloudinary(req.file.buffer, {
         folder: "medstore/prescriptions",
         resource_type: "auto", // handles both images and PDFs
       });
       imageUrl = result.secure_url;
       cloudinaryPublicId = result.public_id;
-      console.log("✅ Prescription uploaded to Cloudinary:", imageUrl);
+      logger.info("Prescription uploaded to Cloudinary:", imageUrl);
     } else {
       // ── Local disk fallback ──────────────────────────────────────────────────
       // FIX: Don't expose local path directly, will be served via protected route
       imageUrl = null; // Don't store public URL for local files
       fileName = req.file.filename;
-      console.log("📁 Prescription saved locally:", fileName);
+      logger.info("Prescription saved locally:", fileName);
     }
 
     // FIX: Include fileName and other fields
@@ -48,8 +49,8 @@ export const uploadPrescription = async (req, res) => {
       uploadedAt: new Date()
     });
 
-    console.log("Prescription record created:", pres._id);
-    
+    logger.info("Prescription record created:", pres._id);
+
     // FIX: Don't return imageUrl for local files (security)
     res.status(201).json({
       success: true,
@@ -64,18 +65,18 @@ export const uploadPrescription = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Upload failed:", error.message);
-    
+    logger.error("Upload failed:", error.message);
+
     // FIX: Clean up file if database creation failed
     if (req.file && req.file.path && fs.existsSync(req.file.path)) {
       try {
         fs.unlinkSync(req.file.path);
-        console.log("🧹 Cleaned up orphaned file:", req.file.path);
+        logger.info("Cleaned up orphaned file:", req.file.path);
       } catch (unlinkError) {
-        console.error("Failed to clean up file:", unlinkError.message);
+        logger.error("Failed to clean up file:", unlinkError.message);
       }
     }
-    
+
     res.status(500).json({ message: "Upload failed", error: error.message });
   }
 };
@@ -85,8 +86,10 @@ export const getUserPrescriptions = async (req, res) => {
   try {
     const prescriptions = await Prescription.find({ user: req.user._id })
       .sort({ createdAt: -1 })
-      .select('-__v'); // Exclude version field
-    
+      // FIX-12: Exclude cloudinaryPublicId — users don't need it and it can be used
+      // to construct direct Cloudinary URLs bypassing access controls
+      .select('-__v -cloudinaryPublicId');
+
     // FIX: Don't expose local file paths
     const sanitizedPrescriptions = prescriptions.map(p => {
       const pres = p.toObject();
@@ -96,14 +99,14 @@ export const getUserPrescriptions = async (req, res) => {
       }
       return pres;
     });
-    
+
     res.json({
       success: true,
       count: sanitizedPrescriptions.length,
       prescriptions: sanitizedPrescriptions
     });
   } catch (error) {
-    console.error("Fetch error:", error);
+    logger.error("Fetch error:", error);
     res.status(500).json({ message: "Failed to fetch prescriptions", error: error.message });
   }
 };
@@ -124,16 +127,16 @@ export const getPendingPrescriptions = async (req, res) => {
         .limit(limit),
     ]);
 
-    res.json({ 
+    res.json({
       success: true,
-      prescriptions, 
-      page, 
-      limit, 
-      total, 
-      pages: Math.ceil(total / limit) 
+      prescriptions,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
     });
   } catch (error) {
-    console.error("Fetch error:", error);
+    logger.error("Fetch error:", error);
     res.status(500).json({ message: "Failed to fetch pending prescriptions", error: error.message });
   }
 };
@@ -145,7 +148,7 @@ export const getAllPrescriptions = async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
     const { status } = req.query;
-    
+
     const query = {};
     if (status) query.status = status;
 
@@ -158,16 +161,16 @@ export const getAllPrescriptions = async (req, res) => {
         .limit(limit),
     ]);
 
-    res.json({ 
+    res.json({
       success: true,
-      prescriptions, 
-      page, 
-      limit, 
-      total, 
-      pages: Math.ceil(total / limit) 
+      prescriptions,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
     });
   } catch (error) {
-    console.error("Fetch error:", error);
+    logger.error("Fetch error:", error);
     res.status(500).json({ message: "Failed to fetch prescriptions", error: error.message });
   }
 };
@@ -177,15 +180,15 @@ export const updatePrescriptionStatus = async (req, res) => {
   try {
     const { status, notes } = req.body;
     const validStatuses = ["pending", "approved", "rejected"];
-    
+
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ message: "Invalid status" });
     }
 
     const prescription = await Prescription.findByIdAndUpdate(
       req.params.id,
-      { 
-        status, 
+      {
+        status,
         adminNotes: notes,
         reviewedAt: new Date(),
         reviewedBy: req.user._id
@@ -204,7 +207,7 @@ export const updatePrescriptionStatus = async (req, res) => {
         prescription.user.name || "Customer",
         status,
         notes || ""
-      ).catch(err => console.error("Prescription status email failed:", err.message));
+      ).catch(err => logger.error("Prescription status email failed:", err.message));
     }
 
     res.json({
@@ -213,7 +216,7 @@ export const updatePrescriptionStatus = async (req, res) => {
       prescription
     });
   } catch (error) {
-    console.error("Update error:", error);
+    logger.error("Update error:", error);
     res.status(500).json({ message: "Failed to update prescription status", error: error.message });
   }
 };
@@ -226,15 +229,16 @@ export const updatePrescriptionStatus = async (req, res) => {
 export const deletePrescription = async (req, res) => {
   try {
     const prescription = await Prescription.findById(req.params.id);
-    
+
     if (!prescription) {
       return res.status(404).json({ message: "Prescription not found" });
     }
 
     // Check ownership (user can delete their own, admin can delete any)
-    const isAdmin = req.user.isAdmin;
+    // FIX C4: Use role === 'admin' — isAdmin does not exist on User schema.
+    const isAdmin = req.user.role === 'admin';
     const isOwner = prescription.user.toString() === req.user._id.toString();
-    
+
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: "Not authorized to delete this prescription" });
     }
@@ -244,9 +248,9 @@ export const deletePrescription = async (req, res) => {
       try {
         const cloudinary = (await import('cloudinary')).v2;
         await cloudinary.uploader.destroy(prescription.cloudinaryPublicId);
-        console.log("✅ Deleted from Cloudinary:", prescription.cloudinaryPublicId);
+        logger.info("Deleted from Cloudinary:", prescription.cloudinaryPublicId);
       } catch (cloudinaryError) {
-        console.error("Failed to delete from Cloudinary:", cloudinaryError);
+        logger.error("Failed to delete from Cloudinary:", cloudinaryError);
       }
     }
 
@@ -255,7 +259,7 @@ export const deletePrescription = async (req, res) => {
       const filePath = path.join(process.cwd(), "uploads", "prescriptions", prescription.fileName);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        console.log("✅ Deleted local file:", filePath);
+        logger.info("Deleted local file:", filePath);
       }
     }
 
@@ -266,7 +270,7 @@ export const deletePrescription = async (req, res) => {
       message: "Prescription deleted successfully"
     });
   } catch (error) {
-    console.error("Delete error:", error);
+    logger.error("Delete error:", error);
     res.status(500).json({ message: "Failed to delete prescription", error: error.message });
   }
 };
@@ -275,15 +279,16 @@ export const deletePrescription = async (req, res) => {
 export const getPrescriptionFile = async (req, res) => {
   try {
     const prescription = await Prescription.findById(req.params.id);
-    
+
     if (!prescription) {
       return res.status(404).json({ message: "Prescription not found" });
     }
 
     // Check ownership
-    const isAdmin = req.user.isAdmin;
+    // FIX C4: Use role === 'admin' — isAdmin does not exist on User schema.
+    const isAdmin = req.user.role === 'admin';
     const isOwner = prescription.user.toString() === req.user._id.toString();
-    
+
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: "Not authorized to access this prescription" });
     }
@@ -299,12 +304,12 @@ export const getPrescriptionFile = async (req, res) => {
           type: 'authenticated',
           expires_at: Math.floor(Date.now() / 1000) + 3600 // 1 hour
         });
-        return res.json({ 
-          success: true, 
-          url: signedUrl 
+        return res.json({
+          success: true,
+          url: signedUrl
         });
       } catch (cloudinaryError) {
-        console.error("Failed to generate signed URL:", cloudinaryError);
+        logger.error("Failed to generate signed URL:", cloudinaryError);
         return res.status(500).json({ message: "Failed to generate file URL" });
       }
     }
@@ -315,7 +320,7 @@ export const getPrescriptionFile = async (req, res) => {
     }
 
     const filePath = path.join(process.cwd(), "uploads", "prescriptions", prescription.fileName);
-    
+
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: "File not found" });
     }
@@ -323,10 +328,10 @@ export const getPrescriptionFile = async (req, res) => {
     // Set proper headers for file download
     res.setHeader('Content-Type', prescription.mimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${prescription.originalName}"`);
-    
+
     res.sendFile(filePath);
   } catch (error) {
-    console.error("File access error:", error);
+    logger.error("File access error:", error);
     res.status(500).json({ message: "Failed to access file", error: error.message });
   }
 };
@@ -335,7 +340,7 @@ export const getPrescriptionFile = async (req, res) => {
 export const bulkDeletePrescriptions = async (req, res) => {
   try {
     const { ids } = req.body;
-    
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ message: "No prescription IDs provided" });
     }
@@ -363,7 +368,7 @@ export const bulkDeletePrescriptions = async (req, res) => {
         await prescription.deleteOne();
         deletedCount++;
       } catch (err) {
-        console.error(`Failed to delete prescription ${prescription._id}:`, err);
+        logger.error(`Failed to delete prescription ${prescription._id}:`, err);
         failedCount++;
       }
     }
@@ -375,7 +380,7 @@ export const bulkDeletePrescriptions = async (req, res) => {
       failedCount
     });
   } catch (error) {
-    console.error("Bulk delete error:", error);
+    logger.error("Bulk delete error:", error);
     res.status(500).json({ message: "Failed to delete prescriptions", error: error.message });
   }
 };

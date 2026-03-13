@@ -13,6 +13,12 @@ import {
 
 const router = express.Router();
 
+// M4: Override the global 10kb body limit for prescription routes.
+// Multer handles multipart uploads, but some endpoints may receive
+// larger JSON payloads (e.g., base64 data). This ensures they work.
+router.use(express.json({ limit: '5mb' }));
+router.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
 // =====================================================
 // ALL AUTHENTICATED USER ROUTES
 // =====================================================
@@ -25,9 +31,9 @@ router.use(protect);
 // Upload prescription (requires file upload)
 // FIX: Use uploadPrescription middleware with proper error handling
 router.post(
-  "/", 
-  uploadPrescription.single("file"), 
-  handleMulterError, 
+  "/",
+  uploadPrescription.single("file"),
+  handleMulterError,
   uploadPrescriptionController
 );
 

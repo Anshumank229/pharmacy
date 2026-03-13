@@ -55,7 +55,20 @@ const orderSchema = new mongoose.Schema(
     razorpayOrderId: { type: String },
     razorpayPaymentId: { type: String },
     razorpaySignature: { type: String },
-    paymentVerifiedAt: { type: Date }
+    paymentVerifiedAt: { type: Date },
+
+    // FIX-16: Add paymentError and refundDetails to schema so Mongoose validates them
+    paymentError: {
+      code: { type: String },
+      description: { type: String },
+      timestamp: { type: Date }
+    },
+    refundDetails: {
+      refundId: { type: String },
+      amount: { type: Number },
+      status: { type: String },
+      createdAt: { type: Date }
+    }
   },
   { timestamps: true }
 );
@@ -68,11 +81,14 @@ orderSchema.index({ createdAt: -1 });        // Sort newest first
 orderSchema.index({ coupon: 1 });            // Coupon usage analytics
 orderSchema.index({ razorpayOrderId: 1 });   // Payment lookups
 
-// Helper method to check if order can be cancelled
-orderSchema.methods.canBeCancelled = function() {
-  return ['pending', 'processing'].includes(this.orderStatus) && 
-         this.paymentStatus !== 'paid';
+// FIX-17: canBeCancelled must also check orderStatus — COD orders in 'shipped'
+// or 'delivered' won't have paymentStatus 'paid' but should still fail this check.
+orderSchema.methods.canBeCancelled = function () {
+  return this.orderStatus === 'processing' && this.paymentStatus !== 'paid';
 };
+
+// M9: Compound index for paginated user order history (most common query)
+orderSchema.index({ user: 1, createdAt: -1 });
 
 const Order = mongoose.model("Order", orderSchema);
 
@@ -80,18 +96,18 @@ const Order = mongoose.model("Order", orderSchema);
 // Run this once to migrate existing string addresses to object format
 export const migrateStringAddresses = async () => {
   try {
-    const orders = await Order.find({ 
+    const orders = await Order.find({
       $expr: { $eq: [{ $type: "$shippingAddress" }, "string"] }
     });
-    
+
     console.log(`Found ${orders.length} orders with string addresses to migrate`);
-    
+
     for (const order of orders) {
       // If it's a string, try to parse or convert to object
       if (typeof order.shippingAddress === 'string') {
         // Try to get user info for better migration
         const user = await mongoose.model('User').findById(order.user);
-        
+
         order.shippingAddress = {
           name: user?.name || 'Unknown',
           email: user?.email || 'unknown@email.com',
@@ -102,12 +118,12 @@ export const migrateStringAddresses = async () => {
           postalCode: '000000',
           country: 'India'
         };
-        
+
         await order.save();
         console.log(`Migrated order ${order._id}`);
       }
     }
-    
+
     console.log('Migration complete');
   } catch (error) {
     console.error('Migration failed:', error);

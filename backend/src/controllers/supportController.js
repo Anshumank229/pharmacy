@@ -1,5 +1,6 @@
 import SupportTicket from "../models/SupportTicket.js";
 import { sendTicketConfirmationEmail, sendTicketReplyEmail } from "../services/emailService.js";
+import logger from "../utils/logger.js";
 
 // @desc    Create a new support ticket
 // @route   POST /api/support
@@ -30,11 +31,11 @@ export const createTicket = async (req, res) => {
             req.user.name,
             ticket._id.toString().slice(-8).toUpperCase(),
             subject
-        ).catch((err) => console.error("Ticket confirmation email failed:", err.message));
+        ).catch((err) => logger.error("Ticket confirmation email failed:", err.message));
 
         res.status(201).json(ticket);
     } catch (error) {
-        console.error("Create ticket error:", error);
+        logger.error("Create ticket error:", error);
         res.status(500).json({ message: "Failed to create ticket" });
     }
 };
@@ -94,7 +95,7 @@ export const getAllTickets = async (req, res) => {
             total,
         });
     } catch (error) {
-        console.error("Fetch all tickets error:", error);
+        logger.error("Fetch all tickets error:", error);
         res.status(500).json({ message: "Failed to fetch tickets" });
     }
 };
@@ -127,12 +128,12 @@ export const replyToTicket = async (req, res) => {
                 ticket._id.toString().slice(-8).toUpperCase(),
                 ticket.subject,
                 reply
-            ).catch((err) => console.error("Ticket reply email failed:", err.message));
+            ).catch((err) => logger.error("Ticket reply email failed:", err.message));
         }
 
         res.json(ticket);
     } catch (error) {
-        console.error("Reply ticket error:", error);
+        logger.error("Reply ticket error:", error);
         res.status(500).json({ message: "Failed to reply to ticket" });
     }
 };

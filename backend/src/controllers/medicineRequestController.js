@@ -1,6 +1,7 @@
 import MedicineRequest from "../models/MedicineRequest.js";
 import Medicine from "../models/Medicine.js";
 import { sendRequestStatusEmail, notifyAdminNewRequest } from "../services/emailService.js";
+import logger from "../utils/logger.js";
 
 // =====================================================
 // USER: Create a medicine request
@@ -14,8 +15,8 @@ export const createRequest = async (req, res) => {
     }
 
     // Check if medicine already exists in database
-    const existingMedicine = await Medicine.findOne({ 
-      name: { $regex: new RegExp(medicineName, 'i') } 
+    const existingMedicine = await Medicine.findOne({
+      name: { $regex: new RegExp(medicineName, 'i') }
     });
 
     const request = await MedicineRequest.create({
@@ -33,8 +34,8 @@ export const createRequest = async (req, res) => {
     await request.populate("user", "name email phone");
 
     // Notify admins (fire and forget)
-    notifyAdminNewRequest(request).catch(err => 
-      console.error("Failed to notify admins:", err)
+    notifyAdminNewRequest(request).catch(err =>
+      logger.error("Failed to notify admins:", err)
     );
 
     res.status(201).json({
@@ -49,7 +50,7 @@ export const createRequest = async (req, res) => {
       } : null
     });
   } catch (error) {
-    console.error("Create request error:", error);
+    logger.error("Create request error:", error);
     res.status(500).json({ message: "Failed to create request", error: error.message });
   }
 };
@@ -69,7 +70,7 @@ export const getMyRequests = async (req, res) => {
       requests
     });
   } catch (error) {
-    console.error("Fetch requests error:", error);
+    logger.error("Fetch requests error:", error);
     res.status(500).json({ message: "Failed to fetch requests" });
   }
 };
@@ -92,8 +93,8 @@ export const cancelRequest = async (req, res) => {
 
     // Only allow cancellation of pending requests
     if (request.status !== "pending") {
-      return res.status(400).json({ 
-        message: `Cannot cancel request with status: ${request.status}` 
+      return res.status(400).json({
+        message: `Cannot cancel request with status: ${request.status}`
       });
     }
 
@@ -105,7 +106,7 @@ export const cancelRequest = async (req, res) => {
       message: "Request cancelled successfully"
     });
   } catch (error) {
-    console.error("Cancel request error:", error);
+    logger.error("Cancel request error:", error);
     res.status(500).json({ message: "Failed to cancel request" });
   }
 };
@@ -141,7 +142,7 @@ export const getAllRequests = async (req, res) => {
       pages: Math.ceil(total / limit)
     });
   } catch (error) {
-    console.error("Fetch all requests error:", error);
+    logger.error("Fetch all requests error:", error);
     res.status(500).json({ message: "Failed to fetch requests" });
   }
 };
@@ -191,7 +192,7 @@ export const updateRequestStatus = async (req, res) => {
         request.medicineName,
         status,
         adminNotes
-      ).catch(err => console.error("Status email failed:", err));
+      ).catch(err => logger.error("Status email failed:", err));
     }
 
     res.json({
@@ -200,7 +201,7 @@ export const updateRequestStatus = async (req, res) => {
       request
     });
   } catch (error) {
-    console.error("Update request error:", error);
+    logger.error("Update request error:", error);
     res.status(500).json({ message: "Failed to update request" });
   }
 };
@@ -236,7 +237,7 @@ export const getRequestStats = async (req, res) => {
       recent
     });
   } catch (error) {
-    console.error("Stats error:", error);
+    logger.error("Stats error:", error);
     res.status(500).json({ message: "Failed to get stats" });
   }
 };
@@ -268,7 +269,7 @@ export const bulkUpdateRequests = async (req, res) => {
       modifiedCount: result.modifiedCount
     });
   } catch (error) {
-    console.error("Bulk update error:", error);
+    logger.error("Bulk update error:", error);
     res.status(500).json({ message: "Failed to bulk update requests" });
   }
 };

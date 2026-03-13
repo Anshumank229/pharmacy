@@ -5,6 +5,10 @@ import Medicine from "../models/Medicine.js";
 import Coupon from "../models/Coupon.js";
 import Prescription from "../models/Prescription.js";
 import { sendOrderConfirmation, sendOrderStatusEmail } from "../services/emailService.js";
+// M5: Structured logger — replaces console.log/error
+import logger from "../utils/logger.js";
+
+const isProd = process.env.NODE_ENV === 'production';
 
 // ==========================
 // VALIDATE PRESCRIPTIONS FOR ORDER
@@ -12,7 +16,7 @@ import { sendOrderConfirmation, sendOrderStatusEmail } from "../services/emailSe
 const validatePrescriptionsForOrder = async (userId, cartItems) => {
   // Get all medicine IDs from the cart
   const medicineIds = cartItems.map(item => item.medicine._id);
-  
+
   // Find which medicines require prescription
   const prescriptionMedicines = await Medicine.find({
     _id: { $in: medicineIds },
@@ -37,10 +41,6 @@ const validatePrescriptionsForOrder = async (userId, cartItems) => {
     );
   }
 
-  // Optional: Check if prescriptions cover the specific medicines
-  // This depends on your business logic - you might want to check
-  // if the prescription matches the specific medicines being ordered
-  
   return true;
 };
 
@@ -51,9 +51,7 @@ export const createOrder = async (req, res) => {
   try {
     const { shippingAddress, paymentMethod, couponCode } = req.body;
 
-    console.log("📦 Creating order for user:", req.user._id);
-    console.log("🏷️ Coupon code received:", couponCode || "None");
-    console.log("📦 Shipping address received:", shippingAddress);
+    logger.info("Creating order", { userId: req.user._id, couponCode: couponCode || "none" });
 
     // STEP 1: FETCH USER'S CART
     let cart = await Cart.findOne({ user: req.user._id }).populate("items.medicine");
@@ -65,9 +63,9 @@ export const createOrder = async (req, res) => {
     try {
       await validatePrescriptionsForOrder(req.user._id, cart.items);
     } catch (prescriptionError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: prescriptionError.message,
-        requiresPrescription: true 
+        requiresPrescription: true
       });
     }
 
@@ -90,15 +88,94 @@ export const createOrder = async (req, res) => {
     let appliedCoupon = null;
     let discountAmount = 0;
 
-    // STEP 5: APPLY COUPON
+    // STEP 5: APPLY COUPON (UPGRADE 3 — full rule enforcement)
     if (couponCode) {
-      const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true });
-      if (coupon && totalAmount >= coupon.minOrderAmount) {
-        discountAmount = (totalAmount * coupon.discountPercent) / 100;
-        totalAmount -= discountAmount;
-        appliedCoupon = coupon._id;
-        console.log(`✅ Coupon applied: ${coupon.code} — ${coupon.discountPercent}% off (₹${discountAmount.toFixed(2)} saved)`);
+      // Pre-populate cart items' medicine objects for category/product checks
+      const orderItemsForCheck = cart.items; // items already populated
+
+      const coupon = await Coupon.findOne({ code: couponCode.toUpperCase() });
+
+      // CHECK 1 — Basic validity
+      if (!coupon) {
+        return res.status(400).json({ message: "Invalid coupon code" });
       }
+      if (!coupon.isActive) {
+        return res.status(400).json({ message: "Coupon is not active" });
+      }
+      if (coupon.validUntil && coupon.validUntil < Date.now()) {
+        return res.status(400).json({ message: "Coupon has expired" });
+      }
+      if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
+        return res.status(400).json({ message: "Coupon usage limit reached" });
+      }
+      if (totalAmount < coupon.minOrderAmount) {
+        return res.status(400).json({
+          message: `Minimum order amount of ₹${coupon.minOrderAmount} required for this coupon`
+        });
+      }
+
+      // CHECK 2 — First time only
+      if (coupon.firstTimeOnly) {
+        const previousOrders = await Order.countDocuments({
+          user: req.user._id,
+          status: { $ne: "cancelled" }
+        });
+        if (previousOrders > 0) {
+          return res.status(400).json({ message: "This coupon is for first-time orders only" });
+        }
+      }
+
+      // CHECK 3 — User specific
+      if (coupon.userSpecific && coupon.applicableUsers.length > 0) {
+        const isAllowed = coupon.applicableUsers
+          .some(id => id.toString() === req.user._id.toString());
+        if (!isAllowed) {
+          return res.status(400).json({ message: "This coupon is not valid for your account" });
+        }
+      }
+
+      // CHECK 4 — Per user usage limit
+      const perUserLimit = coupon.perUserLimit ?? 1;
+      const userUsageCount = coupon.usedBy
+        ? coupon.usedBy.filter(entry => entry.user.toString() === req.user._id.toString()).length
+        : 0;
+      if (userUsageCount >= perUserLimit) {
+        return res.status(400).json({
+          message: `You have already used this coupon the maximum number of times (${perUserLimit})`
+        });
+      }
+
+      // CHECK 5 — Applicable categories
+      if (coupon.applicableCategories && coupon.applicableCategories.length > 0) {
+        const orderCategories = orderItemsForCheck.map(i => i.medicine.category);
+        const hasValidCategory = orderCategories
+          .some(cat => coupon.applicableCategories.includes(cat));
+        if (!hasValidCategory) {
+          return res.status(400).json({ message: "Coupon not valid for items in your cart" });
+        }
+      }
+
+      // CHECK 6 — Excluded products
+      if (coupon.excludedProducts && coupon.excludedProducts.length > 0) {
+        const hasExcluded = orderItemsForCheck
+          .some(i => coupon.excludedProducts
+            .some(id => id.toString() === i.medicine._id.toString()));
+        if (hasExcluded) {
+          return res.status(400).json({
+            message: "Coupon cannot be applied to one or more items in your cart"
+          });
+        }
+      }
+
+      // All checks passed — apply discount
+      discountAmount = coupon.calculateDiscount(totalAmount);
+      totalAmount -= discountAmount;
+      appliedCoupon = coupon._id;
+      logger.info("Coupon applied", {
+        code: coupon.code,
+        discountPercent: coupon.discountPercent,
+        discountAmount: discountAmount.toFixed(2)
+      });
     }
 
     // STEP 6: BUILD ORDER ITEMS
@@ -109,153 +186,184 @@ export const createOrder = async (req, res) => {
     }));
 
     // STEP 7: VALIDATE SHIPPING ADDRESS
-    if (!shippingAddress || !shippingAddress.name || !shippingAddress.email || !shippingAddress.phone || 
-        !shippingAddress.address || !shippingAddress.city || !shippingAddress.postalCode) {
-      return res.status(400).json({ 
+    if (!shippingAddress || !shippingAddress.name || !shippingAddress.email || !shippingAddress.phone ||
+      !shippingAddress.address || !shippingAddress.city || !shippingAddress.postalCode) {
+      return res.status(400).json({
         message: "Complete shipping address is required",
         required: ["name", "email", "phone", "address", "city", "postalCode"]
       });
     }
 
-    // STEP 8: TRY TRANSACTION (Replica Set) OR FALLBACK (Standalone)
-    let session = null;
-    let useTransaction = false;
+    // STEP 8: CREATE ORDER WITHIN A TRANSACTION (FIX H10)
+    // Using a MongoDB session ensures order + stock deductions are atomic.
+    // If any stock deduction fails (insufficient stock under concurrent load),
+    // the entire transaction is aborted and no partial state is committed.
+    const session = await mongoose.startSession();
+    let order;
 
     try {
-      session = await mongoose.startSession();
-      session.startTransaction();
-      useTransaction = true;
-    } catch (err) {
-      console.warn("⚠️ Transactions not supported (standalone MongoDB). Running without transaction.");
-      session = null;
-      useTransaction = false;
-    }
-
-    try {
-      // Create order with ALL required fields
-      const orderData = {
-        user: req.user._id,
-        items: orderItems,
-        totalAmount,
-        subtotal: subtotal,
-        deliveryCharge: deliveryCharge,
-        discount: discountAmount,
-        coupon: appliedCoupon,
-        couponCode: couponCode || null,
-        shippingAddress: {
-          name: shippingAddress.name,
-          email: shippingAddress.email,
-          phone: shippingAddress.phone,
-          address: shippingAddress.address,
-          city: shippingAddress.city,
-          state: shippingAddress.state || '',
-          postalCode: shippingAddress.postalCode,
-          country: 'India'
-        },
-        paymentMethod,
-        paymentStatus: paymentMethod === "cod" ? "pending" : "pending",
-        orderStatus: "processing",
-      };
-
-      console.log("📦 Order data being saved:", JSON.stringify(orderData, null, 2));
-
-      let order;
-      if (useTransaction && session) {
-        [order] = await Order.create([orderData], { session });
-      } else {
-        order = await Order.create(orderData);
-      }
-
-      // Deduct stock
-      for (const item of cart.items) {
-        if (useTransaction && session) {
-          await Medicine.findByIdAndUpdate(
-            item.medicine._id,
+      await session.withTransaction(async () => {
+        // 8a: Atomic stock deduction — $gte guard prevents going negative
+        for (const item of cart.items) {
+          const updated = await Medicine.findOneAndUpdate(
+            { _id: item.medicine._id, stock: { $gte: item.quantity } },
             { $inc: { stock: -item.quantity } },
-            { session }
+            { session, new: true }
           );
-        } else {
-          await Medicine.findByIdAndUpdate(item.medicine._id, { $inc: { stock: -item.quantity } });
+
+          if (!updated) {
+            // Stock dropped between our check and now — abort transaction
+            throw new Error(
+              `Insufficient stock for ${item.medicine.name}. ` +
+              `The item may have sold out. Please update your cart.`
+            );
+          }
         }
-      }
 
-      // Clear cart
-      if (useTransaction && session) {
+        // 8b: Create order
+        const orderData = {
+          user: req.user._id,
+          items: orderItems,
+          totalAmount,
+          subtotal: subtotal,
+          deliveryCharge: deliveryCharge,
+          discount: discountAmount,
+          coupon: appliedCoupon,
+          couponCode: couponCode || null,
+          shippingAddress: {
+            name: shippingAddress.name,
+            email: shippingAddress.email,
+            phone: shippingAddress.phone,
+            address: shippingAddress.address,
+            city: shippingAddress.city,
+            state: shippingAddress.state || '',
+            postalCode: shippingAddress.postalCode,
+            country: 'India'
+          },
+          paymentMethod,
+          paymentStatus: "pending",
+          orderStatus: "processing",
+        };
+
+        [order] = await Order.create([orderData], { session });
+
+        // 8c: Clear cart within the same transaction
         await Cart.findByIdAndUpdate(cart._id, { items: [] }, { session });
-      } else {
-        await Cart.findByIdAndUpdate(cart._id, { items: [] });
+      });
+
+      // UPGRADE 3: Increment usedCount AND record this user in usedBy for per-user limit tracking.
+      // Done outside the transaction so a counter failure doesn't roll back a legitimate order.
+      if (appliedCoupon) {
+        await Coupon.findByIdAndUpdate(appliedCoupon, {
+          $inc: { usedCount: 1 },
+          $push: { usedBy: { user: req.user._id, usedAt: new Date() } }
+        });
       }
 
-      if (useTransaction && session) {
-        await session.commitTransaction();
-        console.log("✅ Transaction committed");
-      }
-
-      // Send confirmation email (fire-and-forget)
+      // Send confirmation email (fire-and-forget — never blocks response)
       const populatedOrder = await Order.findById(order._id).populate("items.medicine");
       sendOrderConfirmation(req.user, populatedOrder).catch(err =>
-        console.error("Order confirmation email failed:", err.message)
+        logger.error("Order confirmation email failed:", err.message)
       );
 
-      console.log("✅ Order created:", order._id);
+      logger.info("Order created:", order._id);
       res.status(201).json({
         message: "Order placed successfully",
         order: populatedOrder,
         discountAmount,
       });
 
-    } catch (transactionError) {
-      if (useTransaction && session) {
-        await session.abortTransaction();
-        console.error("❌ Transaction aborted:", transactionError);
-      }
-      throw transactionError;
+    } catch (txError) {
+      logger.error("Order transaction failed:", txError.message);
+      const isBadRequest = txError.message.includes("Insufficient stock") ||
+        txError.message.includes("sold out");
+      return res.status(isBadRequest ? 400 : 500).json({
+        message: txError.message || "Failed to create order",
+      });
     } finally {
-      if (session) session.endSession();
+      session.endSession();
     }
 
   } catch (error) {
-    console.error("❌ Order creation failed:", error);
+    logger.error("Order creation failed:", error);
     if (error.name === 'ValidationError') {
-      return res.status(400).json({ 
-        message: "Validation failed", 
+      return res.status(400).json({
+        message: "Validation failed",
         errors: Object.keys(error.errors).map(key => ({
           field: key,
           message: error.errors[key].message
         }))
       });
     }
-    res.status(500).json({ message: "Failed to create order", error: error.message });
+    res.status(500).json({
+      message: "Failed to create order",
+      // FIX-7: Don't expose internal error details in production
+      error: isProd ? 'An error occurred' : error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
 // ==========================
-// USER: GET MY ORDERS
+// USER: GET MY ORDERS (paginated)
 // ==========================
 export const getMyOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id })
-      .populate("items.medicine")
-      .sort({ createdAt: -1 });
-    res.json(orders);
+    // M1: Pagination — defaults keep existing callers working
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 10);
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      Order.find({ user: req.user._id })
+        .populate("items.medicine")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Order.countDocuments({ user: req.user._id }),
+    ]);
+
+    res.json({
+      data: orders,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        limit,
+      },
+    });
   } catch (error) {
-    console.error("Get my orders error:", error);
+    logger.error("Get my orders error:", error);
     res.status(500).json({ message: "Failed to fetch orders" });
   }
 };
 
-// ==========================
-// ADMIN: GET ALL ORDERS
-// ==========================
+// FIX-5: Paginate getAllOrders — was fetching all orders with no limit (OOM risk at scale)
 export const getAllOrders = async (req, res) => {
   try {
-    const orders = await Order.find()
-      .populate("user", "name email")
-      .populate("items.medicine")
-      .sort({ createdAt: -1 });
-    res.json(orders);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      Order.find()
+        .populate("user", "name email")
+        .populate("items.medicine")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Order.countDocuments(),
+    ]);
+
+    res.json({
+      orders,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      limit,
+    });
   } catch (error) {
-    console.error("Get all orders error:", error);
+    logger.error("Get all orders error:", error);
     res.status(500).json({ message: "Failed to fetch orders" });
   }
 };
@@ -282,13 +390,13 @@ export const updateOrderStatus = async (req, res) => {
     // Send email notification (fire-and-forget)
     if (order.user) {
       sendOrderStatusEmail(order.user.email, order.user.name, order._id, status).catch(err =>
-        console.error("Order status email failed:", err.message)
+        logger.error("Order status email failed:", err.message)
       );
     }
 
     res.json(order);
   } catch (error) {
-    console.error("Update order status error:", error);
+    logger.error("Update order status error:", error);
     res.status(500).json({ message: "Failed to update order status" });
   }
 };
@@ -322,7 +430,29 @@ export const cancelOrder = async (req, res) => {
         await Medicine.findByIdAndUpdate(item.medicine._id, {
           $inc: { stock: item.quantity },
         });
-        console.log(`♻️ Restored ${item.quantity} units of ${item.medicine.name}`);
+        logger.info(`Restored ${item.quantity} units of ${item.medicine.name}`);
+      }
+    }
+
+    // FIX-9: Restore coupon usage if a coupon was applied
+    if (order.couponCode) {
+      try {
+        await Coupon.findOneAndUpdate(
+          { code: order.couponCode.toUpperCase() },
+          {
+            $inc: { usedCount: -1 },
+            $pull: { usedBy: { user: order.user } }
+          }
+        );
+        // Ensure usedCount never goes below 0 (guard against double-cancel edge case)
+        await Coupon.updateOne(
+          { code: order.couponCode.toUpperCase(), usedCount: { $lt: 0 } },
+          { $set: { usedCount: 0 } }
+        );
+        logger.info(`Restored coupon usage for ${order.couponCode} (order ${order._id})`);
+      } catch (couponErr) {
+        // Non-fatal — log but don't block cancellation
+        logger.error("Failed to restore coupon usage on cancel:", couponErr.message);
       }
     }
 
@@ -332,13 +462,13 @@ export const cancelOrder = async (req, res) => {
 
     // Send email notification
     sendOrderStatusEmail(req.user.email, req.user.name, order._id, "cancelled").catch(err =>
-      console.error("Cancellation email failed:", err.message)
+      logger.error("Cancellation email failed:", err.message)
     );
 
-    console.log(`✅ Order ${order._id} cancelled by user ${req.user._id}`);
+    logger.info(`Order ${order._id} cancelled by user ${req.user._id}`);
     res.json({ message: "Order cancelled successfully", order });
   } catch (error) {
-    console.error("Cancel order error:", error);
+    logger.error("Cancel order error:", error);
     res.status(500).json({ message: "Failed to cancel order" });
   }
 };
@@ -357,13 +487,14 @@ export const getOrderById = async (req, res) => {
     }
 
     // Check if user is authorized (admin or order owner)
-    if (order.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+    // FIX C4: Use role === 'admin' — isAdmin field does not exist on User schema.
+    if (order.user._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: "Not authorized to view this order" });
     }
 
     res.json(order);
   } catch (error) {
-    console.error("Get order by ID error:", error);
+    logger.error("Get order by ID error:", error);
     res.status(500).json({ message: "Failed to fetch order" });
   }
 };

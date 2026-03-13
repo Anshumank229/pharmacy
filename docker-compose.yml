@@ -18,6 +18,21 @@ services:
       timeout: 10s
       retries: 5
 
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: medstore-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - medstore-net
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # ─── Backend ────────────────────────────────────────────────────────────────
   backend:
     build:
@@ -29,10 +44,13 @@ services:
     environment:
       NODE_ENV: production
       MONGO_URI: mongodb://mongo:27017/medstore
+      REDIS_URL: redis://redis:6379
     ports:
       - "5000:5000"
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - uploads_data:/app/uploads
@@ -61,6 +79,7 @@ services:
 
 volumes:
   mongo_data:
+  redis_data:
   uploads_data:
 
 

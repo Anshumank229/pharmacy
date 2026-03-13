@@ -7,6 +7,7 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import { isCloudinaryConfigured } from "../services/cloudinaryService.js";
+import logger from "../utils/logger.js";
 
 // ─── Ensure upload directories exist at startup ───────────────────────────────
 // { recursive: true } = creates parent dirs and never throws if already exists
@@ -19,7 +20,7 @@ const uploadDirs = [
 uploadDirs.forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`📁 Created upload directory: ${dir}`);
+    logger.info(`Created upload directory: ${dir}`);
   }
 });
 
@@ -29,10 +30,10 @@ uploadDirs.forEach(dir => {
 const imageFileFilter = (req, file, cb) => {
   const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
   const allowedExtensions = /\.(jpeg|jpg|png|gif|webp)$/i;
-  
+
   const mimetypeValid = allowedTypes.includes(file.mimetype);
   const extnameValid = allowedExtensions.test(path.extname(file.originalname));
-  
+
   if (mimetypeValid && extnameValid) {
     cb(null, true);
   } else {
@@ -44,10 +45,10 @@ const imageFileFilter = (req, file, cb) => {
 const prescriptionFileFilter = (req, file, cb) => {
   const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
   const allowedExtensions = /\.(jpeg|jpg|png|pdf)$/i;
-  
+
   const mimetypeValid = allowedTypes.includes(file.mimetype);
   const extnameValid = allowedExtensions.test(path.extname(file.originalname));
-  
+
   if (mimetypeValid && extnameValid) {
     cb(null, true);
   } else {
@@ -63,27 +64,27 @@ const prescriptionFileFilter = (req, file, cb) => {
 const prescriptionStorage = isCloudinaryConfigured()
   ? multer.memoryStorage()
   : multer.diskStorage({
-      destination: (req, file, cb) => cb(null, "uploads/prescriptions/"),
-      filename: (req, file, cb) => {
-        // Include user ID in filename for traceability when available
-        const userId = req.user?._id || 'anonymous';
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        cb(null, `rx-${userId}-${uniqueSuffix}${ext}`);
-      },
-    });
+    destination: (req, file, cb) => cb(null, "uploads/prescriptions/"),
+    filename: (req, file, cb) => {
+      // Include user ID in filename for traceability when available
+      const userId = req.user?._id || 'anonymous';
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const ext = path.extname(file.originalname);
+      cb(null, `rx-${userId}-${uniqueSuffix}${ext}`);
+    },
+  });
 
 // Storage for medicine images (public)
 const medicineStorage = isCloudinaryConfigured()
   ? multer.memoryStorage()
   : multer.diskStorage({
-      destination: (req, file, cb) => cb(null, "uploads/medicines/"),
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        cb(null, `medicine-${uniqueSuffix}${ext}`);
-      },
-    });
+    destination: (req, file, cb) => cb(null, "uploads/medicines/"),
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const ext = path.extname(file.originalname);
+      cb(null, `medicine-${uniqueSuffix}${ext}`);
+    },
+  });
 
 // Storage for general/temp uploads
 const tempStorage = multer.diskStorage({
@@ -101,7 +102,7 @@ const tempStorage = multer.diskStorage({
 export const uploadPrescription = multer({
   storage: prescriptionStorage,
   fileFilter: prescriptionFileFilter,
-  limits: { 
+  limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
     files: 1 // Only one file at a time
   },
@@ -111,7 +112,7 @@ export const uploadPrescription = multer({
 export const uploadMedicine = multer({
   storage: medicineStorage,
   fileFilter: imageFileFilter,
-  limits: { 
+  limits: {
     fileSize: 5 * 1024 * 1024, // 5MB
     files: 1
   },
@@ -121,7 +122,7 @@ export const uploadMedicine = multer({
 export const uploadGeneral = multer({
   storage: medicineStorage, // Use medicine storage for consistency
   fileFilter: imageFileFilter,
-  limits: { 
+  limits: {
     fileSize: 5 * 1024 * 1024, // 5MB
     files: 1
   },
@@ -130,7 +131,7 @@ export const uploadGeneral = multer({
 // Temp upload (for bulk processing, etc.): 10MB max, accepts any file type (use with caution)
 export const uploadTemp = multer({
   storage: tempStorage,
-  limits: { 
+  limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
     files: 1
   },
@@ -140,7 +141,7 @@ export const uploadTemp = multer({
 export const uploadMultiple = multer({
   storage: medicineStorage,
   fileFilter: imageFileFilter,
-  limits: { 
+  limits: {
     fileSize: 5 * 1024 * 1024, // 5MB per file
     files: 5 // Max 5 files
   },
@@ -150,13 +151,13 @@ export const uploadMultiple = multer({
 export const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        message: 'File too large. Maximum size is 5MB for images, 10MB for prescriptions.' 
+      return res.status(400).json({
+        message: 'File too large. Maximum size is 5MB for images, 10MB for prescriptions.'
       });
     }
     if (err.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ 
-        message: 'Too many files uploaded.' 
+      return res.status(400).json({
+        message: 'Too many files uploaded.'
       });
     }
     return res.status(400).json({ message: err.message });

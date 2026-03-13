@@ -71,5 +71,11 @@ export const validateEnv = () => {
         console.warn("   Set EMAIL_USER and EMAIL_PASSWORD in .env to enable emails.");
     }
 
+    // ── 6. Warn if refresh token secrets are not configured ───────────────────
+    if (!process.env.ACCESS_TOKEN_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
+        console.warn("⚠️  ACCESS_TOKEN_SECRET or REFRESH_TOKEN_SECRET not set — falling back to JWT_SECRET.");
+        console.warn("   Set separate secrets for production security.");
+    }
+
     console.log("✅ Environment variables validated");
 };

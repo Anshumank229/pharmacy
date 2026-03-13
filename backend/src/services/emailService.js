@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import logger from '../utils/logger.js';
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ const createTransporter = () => {
 const sendEmail = async (to, subject, html) => {
   try {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.warn('Email service not configured - skipping email send');
+      logger.warn('Email service not configured - skipping email send');
       return { success: false, error: 'Email service not configured' };
     }
     const transporter = createTransporter();
@@ -29,10 +30,10 @@ const sendEmail = async (to, subject, html) => {
       html,
     };
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
+    logger.info('Email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Email send failed:', error.message);
+    logger.error('Email send failed:', error.message);
     return { success: false, error: error.message };
   }
 };
@@ -77,6 +78,44 @@ function htmlEmailWrapper(bodyHtml) {
     </html>
   `;
 }
+
+// =====================================================
+// NEW: OTP Email Function
+// =====================================================
+export const sendOTPEmail = async (email, name, otp) => {
+  const subject = "Your MedStore Verification Code";
+
+  const body = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #1f2937; margin: 0 0 20px;">Hello ${name}!</h2>
+      
+      <p style="color: #4b5563; margin-bottom: 25px; line-height: 1.6;">
+        Thank you for registering with MedStore. Please use the following verification code to complete your registration:
+      </p>
+      
+      <div style="background: #f3f4f6; padding: 20px; text-align: center; border-radius: 8px; margin: 30px 0;">
+        <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #2563eb; font-family: monospace;">
+          ${otp}
+        </div>
+        <p style="color: #6b7280; font-size: 14px; margin: 10px 0 0;">
+          This code will expire in 10 minutes
+        </p>
+      </div>
+      
+      <div style="background: #fef3c7; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        <p style="color: #92400e; margin: 0; font-size: 14px;">
+          ⚠️ Never share this OTP with anyone. Our team will never ask for it.
+        </p>
+      </div>
+      
+      <p style="color: #6b7280; font-size: 14px; text-align: center; margin-top: 30px;">
+        If you didn't request this verification, please ignore this email.
+      </p>
+    </div>
+  `;
+
+  return sendEmail(email, subject, htmlEmailWrapper(body));
+};
 
 // ── 1. Welcome Email ─────────────────────────────────────────────────────────
 export const sendWelcomeEmail = async (user) => {
@@ -322,7 +361,7 @@ export const sendLowStockAlert = async (medicines) => {
   const email = process.env.EMAIL_USER;
 
   if (!email) {
-    console.warn("Low stock alert skipped: EMAIL_USER not configured.");
+    logger.warn("Low stock alert skipped: EMAIL_USER not configured.");
     return { success: false };
   }
 
@@ -435,7 +474,7 @@ export const sendTicketReplyEmail = async (email, name, ticketId, subject, reply
 };
 
 // =====================================================
-// NEW: Medicine Request Email Functions
+// Medicine Request Email Functions
 // =====================================================
 
 // ── 7. Medicine Request Status Update ───────────────────────────────────────
@@ -505,14 +544,14 @@ export const sendRequestStatusEmail = async (email, name, medicineName, status, 
 // ── 8. Notify Admin of New Request ───────────────────────────────────────────
 export const notifyAdminNewRequest = async (request) => {
   const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
-  
+
   if (!adminEmail) {
-    console.warn("Admin email not configured - skipping notification");
+    logger.warn("Admin email not configured - skipping notification");
     return { success: false };
   }
 
   const subject = `📦 New Medicine Request: ${request.medicineName}`;
-  
+
   const body = `
     <h2 style="margin:0 0 16px;color:#1e293b;font-size:20px;">New Medicine Request</h2>
     
@@ -561,6 +600,7 @@ export const notifyAdminNewRequest = async (request) => {
 };
 
 export default {
+  sendOTPEmail,
   sendWelcomeEmail,
   sendOrderConfirmation,
   sendOrderStatusEmail,

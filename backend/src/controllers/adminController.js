@@ -1,7 +1,7 @@
 import User from "../models/User.js";
 import Order from "../models/Order.js";
 import Medicine from "../models/Medicine.js";
-import bcrypt from "bcryptjs";
+// FIX C2: Removed bcrypt import — password hashing is handled by User model pre-save hook.
 
 // Get low stock medicines (stock <= 10)
 export const getLowStockMedicines = async (req, res) => {
@@ -33,7 +33,7 @@ export const getAdminStats = async (req, res) => {
     // Get today's stats
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -135,19 +135,18 @@ export const createUserByAdmin = async (req, res) => {
       return res.status(400).json({ message: "Name, email and password are required" });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Create user
+    // FIX C2: Pass plain password — the User model pre-save hook hashes it.
+    // Previously, manual bcrypt.hash() here + the pre-save hook = double-hashing,
+    // making admin-created users unable to ever log in.
     const user = await User.create({
       name,
       email,
-      password: hashedPassword,
+      password, // plain — will be hashed by pre-save hook
       phone,
       address,
-      role: role || "user",
-      isAdmin: role === "admin" // Set isAdmin flag based on role
+      role: role || "user"
+      // FIX C4: Removed isAdmin flag — isAdmin does not exist on User schema.
+      // Authorization is role-based (role: "admin").
     });
 
     // Return user without password
@@ -193,7 +192,8 @@ export const updateUserByAdmin = async (req, res) => {
     if (address !== undefined) user.address = address;
     if (role) {
       user.role = role;
-      user.isAdmin = role === "admin";
+      // FIX C4: Removed user.isAdmin assignment — isAdmin does not exist on schema.
+      // Role field alone drives all authorization checks.
     }
     if (isActive !== undefined) user.isActive = isActive;
 
@@ -234,8 +234,8 @@ export const deleteUserByAdmin = async (req, res) => {
     // Check if user has orders
     const hasOrders = await Order.exists({ user: userId });
     if (hasOrders) {
-      return res.status(400).json({ 
-        message: "Cannot delete user with existing orders. Consider deactivating instead." 
+      return res.status(400).json({
+        message: "Cannot delete user with existing orders. Consider deactivating instead."
       });
     }
 
@@ -257,7 +257,7 @@ export const deleteUserByAdmin = async (req, res) => {
 export const getUserById = async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
-    
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }

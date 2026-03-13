@@ -4,6 +4,7 @@
 
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
+import logger from "../utils/logger.js";
 
 dotenv.config();
 
@@ -53,9 +54,9 @@ export const uploadToCloudinary = (buffer, options = {}) => {
 export const deleteFromCloudinary = async (publicId) => {
     try {
         await cloudinary.uploader.destroy(publicId);
-        console.log(`Cloudinary: deleted ${publicId}`);
+        logger.info(`Cloudinary: deleted ${publicId}`);
     } catch (err) {
-        console.error("Cloudinary delete failed:", err.message);
+        logger.error("Cloudinary delete failed:", err.message);
     }
 };
 

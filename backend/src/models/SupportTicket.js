@@ -23,5 +23,8 @@ const SupportTicketSchema = new mongoose.Schema(
 
 SupportTicketSchema.index({ user: 1 });
 SupportTicketSchema.index({ status: 1 });
+// M9: Admin list queries — sorted by recency and filtered by category
+SupportTicketSchema.index({ createdAt: -1 });
+SupportTicketSchema.index({ category: 1 });
 
 export default mongoose.model("SupportTicket", SupportTicketSchema);

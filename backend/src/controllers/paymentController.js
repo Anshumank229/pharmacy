@@ -2,6 +2,7 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";                    // ← Added for signature verification
 import Order from "../models/Order.js";
+import logger from "../utils/logger.js";
 
 // ==============================
 // SAFE RAZORPAY INITIALIZATION
@@ -13,9 +14,9 @@ if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
-  console.log("Razorpay initialized successfully.");
+  logger.info("Razorpay initialized successfully.");
 } else {
-  console.log("Warning: Razorpay keys missing — payment routes disabled.");
+  logger.warn("Razorpay keys missing — payment routes disabled.");
 }
 
 // ==============================
@@ -48,7 +49,7 @@ export const createRazorpayOrder = async (req, res) => {
           message: "Order not found",
         });
       }
-      
+
       // CRITICAL FIX: Check ownership
       if (existingOrder.user.toString() !== req.user._id.toString()) {
         return res.status(403).json({
@@ -65,7 +66,7 @@ export const createRazorpayOrder = async (req, res) => {
     };
 
     const order = await razorpay.orders.create(options);
-    
+
     // FIX: Store razorpay order ID in database if orderId provided
     if (orderId) {
       await Order.findByIdAndUpdate(orderId, {
@@ -78,7 +79,7 @@ export const createRazorpayOrder = async (req, res) => {
       order,
     });
   } catch (error) {
-    console.error("Razorpay order creation error:", error);
+    logger.error("Razorpay order creation error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to create Razorpay order",
@@ -109,7 +110,7 @@ export const verifyPayment = async (req, res) => {
 
     // FIX: CRITICAL - Verify order exists and belongs to user
     const order = await Order.findById(orderId);
-    
+
     if (!order) {
       return res.status(404).json({
         success: false,
@@ -139,8 +140,21 @@ export const verifyPayment = async (req, res) => {
       .update(`${order_id}|${payment_id}`)
       .digest("hex");
 
-    // Compare signatures
-    if (expectedSignature !== signature) {
+    // FIX H11: Timing-safe comparison prevents HMAC side-channel attacks.
+    // A simple !== comparison leaks timing info that lets an attacker guess
+    // signature bytes one at a time. crypto.timingSafeEqual takes constant time.
+    let isSignatureValid = false;
+    try {
+      const expectedBuf = Buffer.from(expectedSignature, "hex");
+      const receivedBuf = Buffer.from(signature, "hex");
+      isSignatureValid =
+        expectedBuf.length === receivedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, receivedBuf);
+    } catch {
+      isSignatureValid = false;
+    }
+
+    if (!isSignatureValid) {
       return res.status(400).json({
         success: false,
         message: "Invalid payment signature",
@@ -171,7 +185,7 @@ export const verifyPayment = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Payment verification error:", error);
+    logger.error("Payment verification error:", error);
     res.status(500).json({
       success: false,
       message: "Payment verification failed",
@@ -188,7 +202,9 @@ export const getPaymentStatus = async (req, res) => {
     const { orderId } = req.params;
 
     const order = await Order.findById(orderId).select(
-      'paymentStatus razorpayOrderId razorpayPaymentId paymentVerifiedAt'
+      // FIX C5: Added 'user' to select — ownership check (order.user.toString()) was
+      // throwing TypeError because user was excluded from the projection.
+      'user paymentStatus razorpayOrderId razorpayPaymentId paymentVerifiedAt'
     );
 
     if (!order) {
@@ -198,8 +214,8 @@ export const getPaymentStatus = async (req, res) => {
       });
     }
 
-    // FIX: Ownership check
-    if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+    // FIX C4: Use role === 'admin' — isAdmin does not exist on User schema.
+    if (order.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: "Not authorized to view this order",
@@ -214,7 +230,7 @@ export const getPaymentStatus = async (req, res) => {
       paymentVerifiedAt: order.paymentVerifiedAt,
     });
   } catch (error) {
-    console.error("Payment status error:", error);
+    logger.error("Payment status error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch payment status",
@@ -239,8 +255,8 @@ export const handlePaymentFailure = async (req, res) => {
       });
     }
 
-    // FIX: Ownership check
-    if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+    // FIX C4: Use role === 'admin' — isAdmin does not exist on User schema.
+    if (order.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: "Not authorized",
@@ -262,7 +278,7 @@ export const handlePaymentFailure = async (req, res) => {
       orderId: order._id,
     });
   } catch (error) {
-    console.error("Payment failure handling error:", error);
+    logger.error("Payment failure handling error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to handle payment failure",
@@ -276,8 +292,8 @@ export const handlePaymentFailure = async (req, res) => {
 // ==============================
 export const refundPayment = async (req, res) => {
   try {
-    // Check if admin
-    if (!req.user.isAdmin) {
+    // FIX C4: Use role === 'admin' — isAdmin does not exist on User schema.
+    if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: "Admin access required",
@@ -337,7 +353,7 @@ export const refundPayment = async (req, res) => {
       refund,
     });
   } catch (error) {
-    console.error("Refund error:", error);
+    logger.error("Refund error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to process refund",

@@ -7,7 +7,9 @@ import {
     getLowStockMedicines,
     createUserByAdmin,
     updateUserByAdmin,
-    deleteUserByAdmin
+    deleteUserByAdmin,
+    getUserById,        // FIX C6: was unregistered
+    toggleUserStatus    // FIX C6: was unregistered
 } from "../controllers/adminController.js";
 
 // Import medicine request controllers
@@ -34,6 +36,9 @@ router.get("/low-stock", protect, adminOnly, getLowStockMedicines);
 router.post("/users", protect, adminOnly, createUserByAdmin);
 router.put("/users/:id", protect, adminOnly, updateUserByAdmin);
 router.delete("/users/:id", protect, adminOnly, deleteUserByAdmin);
+// FIX C6: Previously missing \u2014 now registered
+router.get("/users/:id", protect, adminOnly, getUserById);
+router.patch("/users/:id/toggle", protect, adminOnly, toggleUserStatus);
 
 // =====================================================
 // ADMIN MEDICINE REQUEST ROUTES

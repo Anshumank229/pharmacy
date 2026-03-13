@@ -30,10 +30,10 @@ const fetchPincodeDetails = async (pincode) => {
 
     if (data[0]?.Status === 'Success' && data[0]?.PostOffice?.length > 0) {
       const postOffices = data[0].PostOffice;
-      
+
       const cities = [...new Set(postOffices.map(po => po.District))];
       const states = [...new Set(postOffices.map(po => po.State))];
-      
+
       return {
         success: true,
         cities,
@@ -91,38 +91,17 @@ const Checkout = () => {
     item => item.medicine?.requiresPrescription
   );
 
-  // Fetch user's approved prescriptions
-  const checkUserPrescriptions = async () => {
-    if (!requiresPrescription) return;
-    
-    setCheckingPrescription(true);
-    try {
-      const res = await api.get('/prescriptions/my-prescriptions');
-      // Handle different response structures
-      const prescriptionsList = res.data.prescriptions || res.data || [];
-      const approvedPrescriptions = prescriptionsList.filter(
-        p => p.status === 'approved'
-      );
-      setPrescriptions(approvedPrescriptions);
-      setHasValidPrescription(approvedPrescriptions.length > 0);
-      setPrescriptionError('');
-    } catch (error) {
-      console.error('Failed to check prescriptions:', error);
-      setPrescriptionError('Could not verify prescriptions');
-    } finally {
-      setCheckingPrescription(false);
-    }
-  };
+  // Note: prescription checking is done inside fetchUserAndCart after cart is loaded
+  // (see Fix-15: previously a separate useEffect caused a double API call)
 
   useEffect(() => {
     fetchUserAndCart();
+    // FIX-15: Removed the second useEffect that watched `requiresPrescription` and `cartItems`.
+    // That caused `checkUserPrescriptions` to fire TWICE on initial load:
+    //   1) once when cartItems populated, and 2) when requiresPrescription changed.
+    // Now we call checkUserPrescriptions exactly once inside fetchUserAndCart after
+    // items are set, avoiding the double API call.
   }, []);
-
-  useEffect(() => {
-    if (requiresPrescription && cartItems.length > 0) {
-      checkUserPrescriptions();
-    }
-  }, [requiresPrescription, cartItems]);
 
   const fetchUserAndCart = async () => {
     try {
@@ -149,9 +128,27 @@ const Checkout = () => {
       if (items.length === 0) {
         toast.error('Your cart is empty');
         navigate('/cart');
+        return;
+      }
+
+      // FIX-15: Check prescriptions here (once, after cart is loaded) instead of a
+      // separate useEffect that depends on cartItems and fires on every state change.
+      const needsRx = items.some(item => item.medicine?.requiresPrescription);
+      if (needsRx) {
+        setCheckingPrescription(true);
+        try {
+          const res = await api.get('/prescriptions/my-prescriptions');
+          const prescriptionsList = res.data.prescriptions || res.data || [];
+          const approvedPrescriptions = prescriptionsList.filter(p => p.status === 'approved');
+          setPrescriptions(approvedPrescriptions);
+          setHasValidPrescription(approvedPrescriptions.length > 0);
+        } catch (rxErr) {
+          setPrescriptionError('Could not verify prescriptions');
+        } finally {
+          setCheckingPrescription(false);
+        }
       }
     } catch (error) {
-      console.error('Fetch error:', error);
       toast.error('Failed to load checkout details');
     } finally {
       setLoading(false);
@@ -161,7 +158,7 @@ const Checkout = () => {
   // Handle pincode lookup
   const handlePincodeBlur = async (e) => {
     const pincode = e.target.value;
-    
+
     if (!pincode || pincode.length !== 6) {
       setAvailableCities([]);
       setAvailableStates([]);
@@ -171,17 +168,17 @@ const Checkout = () => {
 
     setPincodeLoading(true);
     setPincodeError('');
-    
+
     const result = await fetchPincodeDetails(pincode);
-    
+
     if (result.success) {
       setAvailableCities(result.cities);
       setAvailableStates(result.states);
-      
+
       // Auto-switch to dropdown mode
       if (result.cities.length > 0) setCityInputType('select');
       if (result.states.length > 0) setStateInputType('select');
-      
+
       // Auto-select if only one option
       if (result.cities.length === 1) {
         setShippingDetails(prev => ({ ...prev, city: result.cities[0] }));
@@ -189,7 +186,7 @@ const Checkout = () => {
       if (result.states.length === 1) {
         setShippingDetails(prev => ({ ...prev, state: result.states[0] }));
       }
-      
+
       toast.success('Pincode verified!');
     } else {
       setPincodeError(result.error);
@@ -197,7 +194,7 @@ const Checkout = () => {
       setAvailableStates([]);
       toast.error(result.error);
     }
-    
+
     setPincodeLoading(false);
   };
 
@@ -224,11 +221,11 @@ const Checkout = () => {
     }
 
     try {
-      const res = await api.post('/coupons/validate', { 
+      const res = await api.post('/coupons/validate', {
         code: couponCode,
-        cartTotal: subtotal 
+        cartTotal: subtotal
       });
-      
+
       const discountPercent = res.data.discountPercent || res.data.discount || 0;
       setDiscount(discountPercent);
       setAppliedCoupon(couponCode);
@@ -337,16 +334,12 @@ const Checkout = () => {
         couponCode: appliedCoupon || null
       };
 
-      console.log('Creating order:', orderData);
-
       const res = await api.post('/orders', orderData);
-      console.log('Order response:', res.data);
-      
       const createdOrder = res.data.order || res.data;
 
       if (paymentMethod === 'razorpay') {
         const razorpayOrder = await createRazorpayOrder(createdOrder._id);
-        
+
         await initializeRazorpay({
           ...createdOrder,
           razorpayOrderId: razorpayOrder.id,
@@ -360,13 +353,6 @@ const Checkout = () => {
         }, 1500);
       }
     } catch (error) {
-      console.error('❌ Order error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        stack: error.stack
-      });
-      
       if (error.response?.data?.message) {
         toast.error(error.response.data.message);
       } else if (error.response?.data?.errors) {
@@ -399,11 +385,12 @@ const Checkout = () => {
         order_id: orderData.razorpayOrderId,
         handler: async function (response) {
           try {
+            // FIX-1: Send fields WITHOUT razorpay_ prefix — backend expects order_id, payment_id, signature
             const verifyRes = await api.post('/payments/verify', {
               orderId: orderData._id,
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature
+              order_id: response.razorpay_order_id,
+              payment_id: response.razorpay_payment_id,
+              signature: response.razorpay_signature
             });
 
             if (verifyRes.data.success) {
@@ -414,8 +401,14 @@ const Checkout = () => {
               toast.error('Payment verification failed');
             }
           } catch (error) {
-            console.error('Verification error:', error);
-            toast.error('Payment verification failed');
+            // FIX-10: Record verification failure so backend tracks it
+            try {
+              await api.post(`/payments/${orderData._id}/failure`, {
+                errorCode: 'VERIFY_FAILED',
+                errorDescription: error?.response?.data?.message || error.message
+              });
+            } catch (_) { /* non-fatal */ }
+            toast.error('Payment verification failed. Please contact support.');
           }
         },
         prefill: {
@@ -427,7 +420,14 @@ const Checkout = () => {
           color: '#2563EB'
         },
         modal: {
-          ondismiss: function () {
+          ondismiss: async function () {
+            // FIX-10: Record payment cancellation/failure in DB
+            try {
+              await api.post(`/payments/${orderData._id}/failure`, {
+                errorCode: 'PAYMENT_CANCELLED',
+                errorDescription: 'User dismissed the payment modal'
+              });
+            } catch (_) { /* non-fatal */ }
             toast.error('Payment cancelled');
             setProcessing(false);
           }
@@ -610,9 +610,8 @@ const Checkout = () => {
                         value={shippingDetails.postalCode}
                         onChange={(e) => setShippingDetails({ ...shippingDetails, postalCode: e.target.value })}
                         onBlur={handlePincodeBlur}
-                        className={`w-full px-4 py-3 sm:py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          pincodeError ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-4 py-3 sm:py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${pincodeError ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="6-digit PIN code"
                         maxLength="6"
                         required
@@ -815,8 +814,8 @@ const Checkout = () => {
 
                 <div className="space-y-3">
                   <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${paymentMethod === 'cod'
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
                     }`}>
                     <input
                       type="radio"
@@ -836,8 +835,8 @@ const Checkout = () => {
                   </label>
 
                   <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${paymentMethod === 'razorpay'
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                    ? 'border-blue-600 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
                     }`}>
                     <input
                       type="radio"

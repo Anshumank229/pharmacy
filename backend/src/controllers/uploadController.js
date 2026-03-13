@@ -7,6 +7,7 @@ import { isCloudinaryConfigured, uploadToCloudinary } from "../services/cloudina
 import Prescription from "../models/Prescription.js";
 import fs from "fs";
 import path from "path";
+import logger from "../utils/logger.js";
 
 /**
  * Generic file upload handler for medicine images.
@@ -24,7 +25,7 @@ export const uploadFile = async (req, res) => {
 
         if (isCloudinaryConfigured() && req.file.buffer) {
             // ── Cloudinary path ──────────────────────────────────────────────────────
-            console.log("☁️ Uploading to Cloudinary...");
+            logger.info("Uploading to Cloudinary...");
             const result = await uploadToCloudinary(req.file.buffer, {
                 folder: "medstore/medicines",
                 resource_type: "image",
@@ -33,12 +34,12 @@ export const uploadFile = async (req, res) => {
             });
             url = result.secure_url;
             cloudinaryPublicId = result.public_id;
-            console.log("✅ Cloudinary upload successful:", url);
+            logger.info("Cloudinary upload successful:", url);
         } else {
             // ── Local disk path (development fallback) ───────────────────────────────
             // FIX: Use correct path for medicine images
             url = `/uploads/medicines/${req.file.filename}`;
-            console.log("📁 Local medicine image upload:", url);
+            logger.info("Local medicine image upload:", url);
         }
 
         res.status(201).json({
@@ -52,7 +53,7 @@ export const uploadFile = async (req, res) => {
             mimetype: req.file.mimetype,
         });
     } catch (error) {
-        console.error("❌ Upload error:", error.message);
+        logger.error("Upload error:", error.message);
         res.status(500).json({ message: "Upload failed", error: error.message });
     }
 };
@@ -72,7 +73,7 @@ export const uploadPrescriptionFile = async (req, res) => {
 
         if (isCloudinaryConfigured() && req.file.buffer) {
             // ── Cloudinary path (private upload) ───────────────────────────────────
-            console.log("☁️ Uploading prescription to Cloudinary...");
+            logger.info("Uploading prescription to Cloudinary...");
             const result = await uploadToCloudinary(req.file.buffer, {
                 folder: "medstore/prescriptions",
                 resource_type: "auto", // Allow PDFs and images
@@ -84,12 +85,12 @@ export const uploadPrescriptionFile = async (req, res) => {
             cloudinaryPublicId = result.public_id;
             // Don't store public URL for prescriptions if they should be private
             fileUrl = result.secure_url; // Still store but access will be controlled
-            console.log("✅ Prescription uploaded to Cloudinary");
+            logger.info("Prescription uploaded to Cloudinary");
         } else {
             // ── Local disk path (development) ─────────────────────────────────────
             // FIX: Store path but don't make it publicly accessible
             fileUrl = `/api/prescriptions/${req.file.filename}/file`; // Protected route
-            console.log("📁 Local prescription upload");
+            logger.info("Local prescription upload");
         }
 
         // FIX: Create prescription record in database
@@ -121,22 +122,22 @@ export const uploadPrescriptionFile = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Prescription upload error:", error.message);
-        
+        logger.error("Prescription upload error:", error.message);
+
         // FIX: Clean up file if database creation failed
         if (req.file && req.file.path) {
             try {
                 fs.unlinkSync(req.file.path);
-                console.log("🧹 Cleaned up orphaned file:", req.file.path);
+                logger.info("Cleaned up orphaned file:", req.file.path);
             } catch (unlinkError) {
-                console.error("Failed to clean up file:", unlinkError.message);
+                logger.error("Failed to clean up file:", unlinkError.message);
             }
         }
-        
-        res.status(500).json({ 
+
+        res.status(500).json({
             success: false,
-            message: "Failed to upload prescription", 
-            error: error.message 
+            message: "Failed to upload prescription",
+            error: error.message
         });
     }
 };
@@ -162,9 +163,9 @@ export const deletePrescriptionFile = async (req, res) => {
             try {
                 const cloudinary = (await import('cloudinary')).v2;
                 await cloudinary.uploader.destroy(prescription.cloudinaryPublicId);
-                console.log("✅ Deleted from Cloudinary");
+                logger.info("Deleted from Cloudinary");
             } catch (cloudinaryError) {
-                console.error("Failed to delete from Cloudinary:", cloudinaryError);
+                logger.error("Failed to delete from Cloudinary:", cloudinaryError);
             }
         }
 
@@ -173,24 +174,24 @@ export const deletePrescriptionFile = async (req, res) => {
             const filePath = path.join(process.cwd(), "uploads", "prescriptions", prescription.fileName);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
-                console.log("✅ Deleted local file");
+                logger.info("Deleted local file");
             }
         }
 
         // Delete from database
         await prescription.deleteOne();
 
-        res.json({ 
+        res.json({
             success: true,
-            message: "Prescription deleted successfully" 
+            message: "Prescription deleted successfully"
         });
 
     } catch (error) {
-        console.error("❌ Delete error:", error.message);
-        res.status(500).json({ 
+        logger.error("Delete error:", error.message);
+        res.status(500).json({
             success: false,
-            message: "Failed to delete prescription", 
-            error: error.message 
+            message: "Failed to delete prescription",
+            error: error.message
         });
     }
 };
@@ -226,7 +227,7 @@ export const getPrescriptionFile = async (req, res) => {
 
         // Serve local file
         const filePath = path.join(process.cwd(), "uploads", "prescriptions", prescription.fileName);
-        
+
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({ message: "File not found" });
         }
@@ -234,11 +235,11 @@ export const getPrescriptionFile = async (req, res) => {
         res.sendFile(filePath);
 
     } catch (error) {
-        console.error("❌ File access error:", error.message);
-        res.status(500).json({ 
+        logger.error("File access error:", error.message);
+        res.status(500).json({
             success: false,
-            message: "Failed to access file", 
-            error: error.message 
+            message: "Failed to access file",
+            error: error.message
         });
     }
 };

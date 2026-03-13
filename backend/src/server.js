@@ -1,5 +1,6 @@
 // src/server.js
 import express from "express";
+import logger from "./utils/logger.js";
 import dotenv from "dotenv";
 import cors from "cors";
 import morgan from "morgan";
@@ -15,11 +16,15 @@ import fs from "fs";
 // SECURITY MIDDLEWARE
 // ========================
 import helmet from "helmet";                        // Secure HTTP headers
-import rateLimit from "express-rate-limit";         // Rate limiting
 import mongoSanitize from "express-mongo-sanitize"; // NoSQL injection protection
+
+// Import rate limiters from separate file - FIX: Only import once
+import { limiter, authLimiter } from "./middleware/rateLimiter.js";
 
 // Routes
 import authRoutes from "./routes/authRoutes.js";
+import otpRoutes from "./routes/otpRoutes.js";
+import googleAuthRoutes from "./routes/googleAuthRoutes.js";
 import medicineRoutes from "./routes/medicineRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
@@ -30,9 +35,11 @@ import adminRoutes from "./routes/adminRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
-import medicineRequestRoutes from "./routes/medicineRequestRoutes.js"; // NEW: Import medicine request routes
+import medicineRequestRoutes from "./routes/medicineRequestRoutes.js";
+import twoFactorRoutes from "./routes/twoFactorRoutes.js";
 import Medicine from "./models/Medicine.js";
 import { sendLowStockAlert } from "./services/emailService.js";
+import { isRedisConnected } from "./config/redis.js";
 
 dotenv.config();
 validateEnv(); // ✅ Fail fast if required env vars are missing
@@ -48,7 +55,7 @@ const uploadDirs = [
 uploadDirs.forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`📁 Created directory: ${dir}`);
+    logger.info(`Created directory: ${dir}`);
   }
 });
 
@@ -59,17 +66,24 @@ const app = express();
 // ========================
 
 // 1. Helmet - Set security HTTP headers
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://checkout.razorpay.com"],
+      frameSrc: ["'self'", "https://api.razorpay.com"],
+      connectSrc: ["'self'", "https://api.razorpay.com"],
+      imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  },
+}));
 
-// 2. Rate Limiting - Limit requests from same IP (100 requests per 15 minutes)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: "Too many requests from this IP, please try again after 15 minutes",
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-});
-app.use("/api/", limiter); // Apply to all API routes
+// 2. Rate Limiting - FIX: Remove the duplicate limiter declaration below
+const isProduction = process.env.NODE_ENV === 'production';
+
+logger.info(`Rate limiter: ${isProduction ? '100' : '1000'} req/15 min (auth: ${isProduction ? '10' : '100'})`);
+app.use("/api/", limiter);
 
 // 3. MongoDB Sanitization - Prevent NoSQL injection attacks
 app.use(mongoSanitize());
@@ -77,16 +91,18 @@ app.use(mongoSanitize());
 // ========================
 // BODY PARSERS & COOKIES
 // ========================
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());
 
 // ========================
 // CORS CONFIGURATION
 // ========================
+logger.info('CORS Origin:', process.env.CLIENT_URL || 'http://localhost:5173');
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
     credentials: true
   })
 );
@@ -101,11 +117,7 @@ if (process.env.NODE_ENV !== "production") {
 // ========================
 // STATIC FILES - PUBLIC
 // ========================
-// FIX: Only serve medicine images publicly, NOT prescriptions
 app.use("/uploads/medicines", express.static(path.join(process.cwd(), "uploads", "medicines")));
-
-// REMOVED: app.use("/uploads", express.static(...)) - This was the security leak!
-// Prescriptions should NEVER be served statically
 
 // ========================
 // API ROUTES
@@ -121,7 +133,8 @@ app.get("/health", (req, res) => {
     message: 'OK',
     timestamp: Date.now(),
     environment: process.env.NODE_ENV || 'development',
-    mongodb: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
+    mongodb: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+    redis: isRedisConnected() ? 'Connected' : 'Disconnected (caching disabled)'
   };
 
   try {
@@ -132,7 +145,12 @@ app.get("/health", (req, res) => {
   }
 });
 
+// Authentication Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/auth/otp", otpRoutes);
+app.use("/api/auth/google", googleAuthRoutes);
+
+// Other API Routes
 app.use("/api/medicines", medicineRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/cart", cartRoutes);
@@ -143,7 +161,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/support", supportRoutes);
-app.use("/api/medicine-requests", medicineRequestRoutes); // NEW: Add medicine request routes
+app.use("/api/medicine-requests", medicineRequestRoutes);
+app.use("/api/2fa", twoFactorRoutes);
 
 // ========================
 // ERROR HANDLERS
@@ -154,76 +173,50 @@ app.use(errorHandler);
 // Start server
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  logger.info(`Server running on port ${PORT}`);
 
-  // ── Scheduled Tasks (Simple Cron) ───────────────────────────────────────────
+  // Scheduled Tasks
   const checkStock = async () => {
     try {
       const outOfStockMedicines = await Medicine.find({ stock: 0 });
       if (outOfStockMedicines.length > 0) {
         const names = outOfStockMedicines.map(m => m.name).join(', ');
-        console.warn(`[STOCK ALERT] ${outOfStockMedicines.length} medicines out of stock: ${names}`);
+        logger.warn(`[STOCK ALERT] ${outOfStockMedicines.length} medicines out of stock: ${names}`);
 
-        // Send email alert
         if (process.env.EMAIL_USER) {
           sendLowStockAlert(outOfStockMedicines).catch(err =>
-            console.error("Failed to send stock alert email:", err.message)
+            logger.error("Failed to send stock alert email:", err.message)
           );
         }
       }
     } catch (error) {
-      console.error("Stock check failed:", error.message);
+      logger.error("Stock check failed:", error.message);
     }
   };
 
-  // Run once on startup
   checkStock();
-
-  // Run every 24 hours (86400000 ms)
   setInterval(checkStock, 24 * 60 * 60 * 1000);
 });
 
-// ==========================================
-// PROCESS ERROR HANDLERS (Crash Prevention)
-// ==========================================
-
-// Handle unhandled promise rejections
+// Process error handlers
 process.on('unhandledRejection', (err) => {
-  console.error('❌ UNHANDLED PROMISE REJECTION! Shutting down gracefully...');
-  console.error('Error name:', err.name);
-  console.error('Error message:', err.message);
-  console.error('Stack:', err.stack);
-
-  // Close server gracefully
-  server.close(() => {
-    console.log('💥 Process terminated due to unhandled rejection');
-    process.exit(1);
-  });
+  logger.error('UNHANDLED PROMISE REJECTION!', err);
+  server.close(() => process.exit(1));
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('❌ UNCAUGHT EXCEPTION! Shutting down...');
-  console.error('Error name:', err.name);
-  console.error('Error message:', err.message);
-  console.error('Stack:', err.stack);
-
+  logger.error('UNCAUGHT EXCEPTION!', err);
   process.exit(1);
 });
 
-// Graceful shutdown on SIGTERM (e.g., from PM2, Docker, Ctrl+C)
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('💤 Process terminated cleanly');
-  });
+  logger.info('SIGTERM received. Shutting down...');
+  server.close(() => logger.info('Process terminated'));
 });
 
 process.on('SIGINT', () => {
-  console.log('👋 SIGINT received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('💤 Process terminated cleanly');
-  });
+  logger.info('SIGINT received. Shutting down...');
+  server.close(() => logger.info('Process terminated'));
 });
 
-console.log('✅ Process error handlers registered');
+logger.info('Process error handlers registered');
