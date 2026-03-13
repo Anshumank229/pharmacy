@@ -1,7 +1,10 @@
 import User from "../models/User.js";
 import Order from "../models/Order.js";
 import Medicine from "../models/Medicine.js";
+import logger from "../utils/logger.js";
 // FIX C2: Removed bcrypt import — password hashing is handled by User model pre-save hook.
+
+const isProd = process.env.NODE_ENV === 'production';
 
 // Get low stock medicines (stock <= 10)
 export const getLowStockMedicines = async (req, res) => {
@@ -51,7 +54,7 @@ export const getAdminStats = async (req, res) => {
       pendingOrders
     });
   } catch (error) {
-    console.error("Stats error:", error);
+    logger.error("Stats error:", error);
     res.status(500).json({ message: "Failed to load stats" });
   }
 };
@@ -80,7 +83,7 @@ export const getAllUsers = async (req, res) => {
       pages: Math.ceil(total / limit)
     });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch users", error: error.message });
+    res.status(500).json({ message: "Failed to fetch users", error: isProd ? 'An error occurred' : error.message });
   }
 };
 
@@ -159,8 +162,8 @@ export const createUserByAdmin = async (req, res) => {
       user: userResponse
     });
   } catch (error) {
-    console.error("Create user error:", error);
-    res.status(500).json({ message: "Failed to create user", error: error.message });
+    logger.error("Create user error:", error);
+    res.status(500).json({ message: "Failed to create user", error: isProd ? 'An error occurred' : error.message });
   }
 };
 
@@ -209,8 +212,8 @@ export const updateUserByAdmin = async (req, res) => {
       user: userResponse
     });
   } catch (error) {
-    console.error("Update user error:", error);
-    res.status(500).json({ message: "Failed to update user", error: error.message });
+    logger.error("Update user error:", error);
+    res.status(500).json({ message: "Failed to update user", error: isProd ? 'An error occurred' : error.message });
   }
 };
 
@@ -246,8 +249,8 @@ export const deleteUserByAdmin = async (req, res) => {
       message: "User deleted successfully"
     });
   } catch (error) {
-    console.error("Delete user error:", error);
-    res.status(500).json({ message: "Failed to delete user", error: error.message });
+    logger.error("Delete user error:", error);
+    res.status(500).json({ message: "Failed to delete user", error: isProd ? 'An error occurred' : error.message });
   }
 };
 
@@ -279,8 +282,8 @@ export const getUserById = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Get user error:", error);
-    res.status(500).json({ message: "Failed to fetch user", error: error.message });
+    logger.error("Get user error:", error);
+    res.status(500).json({ message: "Failed to fetch user", error: isProd ? 'An error occurred' : error.message });
   }
 };
 
@@ -310,7 +313,7 @@ export const toggleUserStatus = async (req, res) => {
       isActive: user.isActive
     });
   } catch (error) {
-    console.error("Toggle user status error:", error);
-    res.status(500).json({ message: "Failed to update user status", error: error.message });
+    logger.error("Toggle user status error:", error);
+    res.status(500).json({ message: "Failed to update user status", error: isProd ? 'An error occurred' : error.message });
   }
 };

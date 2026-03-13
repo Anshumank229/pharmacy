@@ -1,5 +1,6 @@
 // src/models/Order.js
 import mongoose from "mongoose";
+import logger from "../utils/logger.js";
 
 const orderItemSchema = new mongoose.Schema(
   {
@@ -100,7 +101,7 @@ export const migrateStringAddresses = async () => {
       $expr: { $eq: [{ $type: "$shippingAddress" }, "string"] }
     });
 
-    console.log(`Found ${orders.length} orders with string addresses to migrate`);
+    logger.info(`Found ${orders.length} orders with string addresses to migrate`);
 
     for (const order of orders) {
       // If it's a string, try to parse or convert to object
@@ -120,13 +121,13 @@ export const migrateStringAddresses = async () => {
         };
 
         await order.save();
-        console.log(`Migrated order ${order._id}`);
+        logger.info(`Migrated order ${order._id}`);
       }
     }
 
-    console.log('Migration complete');
+    logger.info('Migration complete');
   } catch (error) {
-    console.error('Migration failed:', error);
+    logger.error('Migration failed:', error);
   }
 };
 

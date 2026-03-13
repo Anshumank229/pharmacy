@@ -7,7 +7,8 @@ import {
   getMyOrders,
   getAllOrders,
   updateOrderStatus,
-  cancelOrder
+  cancelOrder,
+  getOrderById  // H3 FIX: was defined but never routed
 } from "../controllers/orderController.js";
 
 const router = express.Router();
@@ -25,6 +26,9 @@ router.post(
 );
 
 router.get("/my-orders", protect, getMyOrders);
+
+// H3 FIX: Single order detail — MUST be after /my-orders to avoid matching "my-orders" as :id
+router.get("/:id", protect, getOrderById);
 
 // Cancel own order (must be "processing")
 router.put("/:id/cancel", protect, cancelOrder);

@@ -1,4 +1,5 @@
 import Cart from "../models/Cart.js";
+import logger from "../utils/logger.js";
 
 // Get user cart
 export const getCart = async (req, res) => {
@@ -80,7 +81,7 @@ export const updateCart = async (req, res) => {
 
     res.json({ message: "Cart updated", cart });
   } catch (error) {
-    console.error('Update cart error:', error);
+    logger.error('Update cart error:', error);
     res.status(500).json({ message: "Failed to update cart" });
   }
 };

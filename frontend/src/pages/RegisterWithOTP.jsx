@@ -1,4 +1,4 @@
-console.log('🔥🔥🔥 RegisterWithOTP.jsx file is being EXECUTED!');
+// H5 FIX: Removed all console.log/error calls that leaked PII and tokens
 
 import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -7,20 +7,10 @@ import api from '../api/axiosClient';
 import { Mail, Phone, User, Smartphone, MessageSquare, ArrowLeft, Lock, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// Debug API connection
-console.log('🔧 API Base URL:', api.defaults.baseURL);
-console.log('🔧 Environment:', import.meta.env);
-
-// Test API connection
-fetch(api.defaults.baseURL + '/health')
-  .then(res => res.json())
-  .then(data => console.log('✅ Backend health check:', data))
-  .catch(err => console.error('❌ Backend not reachable:', err));
-
 const RegisterWithOTP = () => {
   const navigate = useNavigate();
   const { login } = useContext(AuthContext);
-  
+
   const [loginType, setLoginType] = useState('otp'); // 'otp' or 'password'
   const [step, setStep] = useState(1); // 1: choose method, 2: enter details, 3: verify OTP
   const [method, setMethod] = useState('email');
@@ -52,8 +42,7 @@ const RegisterWithOTP = () => {
   };
 
   const handlePasswordRegister = async () => {
-    console.log('🔍 Starting password registration...');
-    
+
     if (!formData.name) {
       toast.error('Please enter your name');
       return;
@@ -85,19 +74,19 @@ const RegisterWithOTP = () => {
         name: formData.name,
         password: formData.password
       };
-      
+
       if (method === 'email') {
         registerData.email = formData.email;
       } else {
         registerData.phone = formData.phone;
       }
 
-      console.log('📤 Registering with:', registerData);
-      
+
+
       const response = await api.post('/auth/register', registerData);
-      
-      console.log('✅ Registration response:', response.data);
-      
+
+
+
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
         if (login) {
@@ -107,7 +96,6 @@ const RegisterWithOTP = () => {
         navigate('/');
       }
     } catch (error) {
-      console.error('❌ Registration error:', error);
       toast.error(error.response?.data?.message || 'Registration failed');
     } finally {
       setLoading(false);
@@ -115,9 +103,7 @@ const RegisterWithOTP = () => {
   };
 
   const handleSendOTP = async () => {
-    console.log('🔍 Starting OTP send process...');
-    console.log('📋 Current state:', { method, phoneMethod, formData });
-    
+
     if (method === 'email' && !formData.email) {
       toast.error('Please enter email');
       return;
@@ -132,7 +118,7 @@ const RegisterWithOTP = () => {
     }
 
     setLoading(true);
-    
+
     try {
       let response;
       if (method === 'email') {
@@ -140,16 +126,16 @@ const RegisterWithOTP = () => {
           email: formData.email,
           name: formData.name
         });
-        console.log('✅ Email OTP Response:', response.data);
+
       } else {
         response = await api.post('/auth/otp/send-phone', {
           phone: formData.phone,
           name: formData.name,
           method: phoneMethod
         });
-        console.log('✅ Phone OTP Response:', response.data);
+
       }
-      
+
       if (response.data.success) {
         toast.success(`OTP sent via ${phoneMethod}`);
         setStep(3);
@@ -158,7 +144,6 @@ const RegisterWithOTP = () => {
         toast.error(response.data.message || 'Failed to send OTP');
       }
     } catch (error) {
-      console.error('❌ API Error:', error);
       if (error.code === 'ERR_NETWORK') {
         toast.error('Cannot connect to server. Is backend running?');
       } else if (error.response?.status === 404) {
@@ -173,8 +158,7 @@ const RegisterWithOTP = () => {
 
   const handleVerifyOTP = async () => {
     const otpString = otp.join('');
-    console.log('🔍 Verifying OTP:', { method, otp: otpString, formData });
-    
+
     if (otpString.length !== 6) {
       toast.error('Please enter 6-digit OTP');
       return;
@@ -182,32 +166,30 @@ const RegisterWithOTP = () => {
 
     setLoading(true);
     try {
-      const payload = method === 'email' 
+      const payload = method === 'email'
         ? { email: formData.email, otp: otpString }
         : { phone: formData.phone, otp: otpString };
 
-      console.log('📤 Verify payload:', payload);
-      
+
+
       const res = await api.post('/auth/otp/verify', payload);
-      
-      console.log('✅ Verify Response:', res.data);
-      
+
+
+
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
-        console.log('🔑 Token stored');
-        
+
         if (login) {
           await login(res.data.token);
         }
       }
-      
+
       toast.success('Registration successful!');
       setTimeout(() => {
         navigate('/');
       }, 1000);
-      
+
     } catch (error) {
-      console.error('❌ Verify Error:', error);
       toast.error(error.response?.data?.message || 'Invalid OTP');
     } finally {
       setLoading(false);
@@ -215,20 +197,18 @@ const RegisterWithOTP = () => {
   };
 
   const handleResendOTP = async () => {
-    console.log('🔍 Resending OTP');
     setLoading(true);
     try {
-      const payload = method === 'email' 
+      const payload = method === 'email'
         ? { email: formData.email }
         : { phone: formData.phone };
 
-      console.log('📤 Resend payload:', payload);
-      
+
+
       await api.post('/auth/otp/resend', payload);
       toast.success('OTP resent');
       startTimer();
     } catch (error) {
-      console.error('❌ Resend Error:', error);
       toast.error('Failed to resend OTP');
     } finally {
       setLoading(false);
@@ -237,7 +217,7 @@ const RegisterWithOTP = () => {
 
   const handleOtpChange = (index, value) => {
     if (isNaN(value)) return;
-    
+
     const newOtp = [...otp];
     newOtp[index] = value;
     setOtp(newOtp);
@@ -277,22 +257,20 @@ const RegisterWithOTP = () => {
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => setLoginType('otp')}
-            className={`flex-1 py-3 rounded-lg font-medium transition-all ${
-              loginType === 'otp'
+            className={`flex-1 py-3 rounded-lg font-medium transition-all ${loginType === 'otp'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+              }`}
           >
             <Smartphone className="w-4 h-4 inline mr-2" />
             OTP Login
           </button>
           <button
             onClick={() => setLoginType('password')}
-            className={`flex-1 py-3 rounded-lg font-medium transition-all ${
-              loginType === 'password'
+            className={`flex-1 py-3 rounded-lg font-medium transition-all ${loginType === 'password'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+              }`}
           >
             <Lock className="w-4 h-4 inline mr-2" />
             Password Login
@@ -489,22 +467,20 @@ const RegisterWithOTP = () => {
                 <div className="flex gap-3">
                   <button
                     onClick={() => setPhoneMethod('whatsapp')}
-                    className={`flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                      phoneMethod === 'whatsapp'
+                    className={`flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 ${phoneMethod === 'whatsapp'
                         ? 'border-green-600 bg-green-50 text-green-700'
                         : 'border-gray-300 text-gray-600'
-                    }`}
+                      }`}
                   >
                     <MessageSquare className="w-5 h-5" />
                     WhatsApp
                   </button>
                   <button
                     onClick={() => setPhoneMethod('sms')}
-                    className={`flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                      phoneMethod === 'sms'
+                    className={`flex-1 py-3 rounded-lg border-2 flex items-center justify-center gap-2 ${phoneMethod === 'sms'
                         ? 'border-blue-600 bg-blue-50 text-blue-700'
                         : 'border-gray-300 text-gray-600'
-                    }`}
+                      }`}
                   >
                     <Smartphone className="w-5 h-5" />
                     SMS

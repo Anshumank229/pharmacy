@@ -1,8 +1,10 @@
 // src/controllers/paymentController.js
 import Razorpay from "razorpay";
-import crypto from "crypto";                    // ← Added for signature verification
+import crypto from "crypto";
 import Order from "../models/Order.js";
 import logger from "../utils/logger.js";
+
+const isProd = process.env.NODE_ENV === 'production';
 
 // ==============================
 // SAFE RAZORPAY INITIALIZATION
@@ -83,7 +85,7 @@ export const createRazorpayOrder = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create Razorpay order",
-      error: error.message,
+      error: isProd ? 'An error occurred' : error.message,
     });
   }
 };
@@ -189,7 +191,7 @@ export const verifyPayment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Payment verification failed",
-      error: error.message,
+      error: isProd ? 'An error occurred' : error.message,
     });
   }
 };
@@ -234,7 +236,7 @@ export const getPaymentStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch payment status",
-      error: error.message,
+      error: isProd ? 'An error occurred' : error.message,
     });
   }
 };
@@ -244,7 +246,9 @@ export const getPaymentStatus = async (req, res) => {
 // ==============================
 export const handlePaymentFailure = async (req, res) => {
   try {
-    const { orderId, errorCode, errorDescription } = req.body;
+    // C1 FIX: orderId comes from route param /:orderId/failure, NOT from body
+    const orderId = req.params.orderId;
+    const { errorCode, errorDescription } = req.body;
 
     const order = await Order.findById(orderId);
 
@@ -282,7 +286,7 @@ export const handlePaymentFailure = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to handle payment failure",
-      error: error.message,
+      error: isProd ? 'An error occurred' : error.message,
     });
   }
 };
@@ -357,7 +361,7 @@ export const refundPayment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to process refund",
-      error: error.message,
+      error: isProd ? 'An error occurred' : error.message,
     });
   }
 };

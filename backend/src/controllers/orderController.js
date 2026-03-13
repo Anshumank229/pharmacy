@@ -118,7 +118,7 @@ export const createOrder = async (req, res) => {
       if (coupon.firstTimeOnly) {
         const previousOrders = await Order.countDocuments({
           user: req.user._id,
-          status: { $ne: "cancelled" }
+          orderStatus: { $ne: "cancelled" }  // C2 FIX: was 'status' — schema field is 'orderStatus'
         });
         if (previousOrders > 0) {
           return res.status(400).json({ message: "This coupon is for first-time orders only" });

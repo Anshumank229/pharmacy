@@ -19,10 +19,10 @@ const AdminLogin = () => {
       // Use the context login function which sets the cookie and user state
       const userData = await login(email, password);
 
-      console.log("Admin login response:", userData); // Debug log
+      // M4 FIX: Removed console.log that leaked admin user data
 
-      // Check if user is admin
-      if (userData?.role === 'admin' || userData?.isAdmin === true) {
+      // Check if user is admin (role-based only — isAdmin field doesn't exist)
+      if (userData?.role === 'admin') {
         // Redirect to admin dashboard, not /admin
         navigate("/admin/dashboard", { replace: true });
         toast.success("Welcome back, Admin!");
@@ -34,7 +34,6 @@ const AdminLogin = () => {
       }
 
     } catch (err) {
-      console.error("Admin login error:", err);
       toast.error(err.response?.data?.message || "Invalid credentials");
     } finally {
       setLoading(false);
